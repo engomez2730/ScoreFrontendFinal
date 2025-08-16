@@ -1,0 +1,68 @@
+import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import { Layout, Menu, Typography, App as AntApp } from "antd";
+import {
+  TeamOutlined,
+  TrophyOutlined,
+  UserOutlined,
+  CalendarOutlined,
+} from "@ant-design/icons";
+import { useState } from "react";
+import TeamsView from "./views/TeamsView";
+import GamesView from "./views/GamesView";
+import GameDetailView from "./views/GameDetailView";
+import PlayersView from "./views/PlayersView";
+import EventsView from "./views/EventsView";
+
+const { Header, Content } = Layout;
+const { Title } = Typography;
+
+const App: React.FC = () => {
+  const [selectedKey, setSelectedKey] = useState("1");
+
+  return (
+    <AntApp>
+      <Router>
+        <Layout style={{ minHeight: "100vh" }}>
+          <Header
+            style={{ display: "flex", alignItems: "center", padding: "0 24px" }}
+          >
+            <Title level={4} style={{ color: "white", margin: "0 24px 0 0" }}>
+              Stats Basketball
+            </Title>
+            <Menu
+              theme="dark"
+              mode="horizontal"
+              selectedKeys={[selectedKey]}
+              onSelect={({ key }) => setSelectedKey(key)}
+              style={{ flex: 1 }}
+            >
+              <Menu.Item key="1" icon={<TeamOutlined />}>
+                <Link to="/">Equipos</Link>
+              </Menu.Item>
+              <Menu.Item key="2" icon={<TrophyOutlined />}>
+                <Link to="/games">Juegos</Link>
+              </Menu.Item>
+              <Menu.Item key="3" icon={<UserOutlined />}>
+                <Link to="/players">Jugadores</Link>
+              </Menu.Item>
+              <Menu.Item key="4" icon={<CalendarOutlined />}>
+                <Link to="/events">Eventos</Link>
+              </Menu.Item>
+            </Menu>
+          </Header>
+          <Content style={{ padding: "24px" }}>
+            <Routes>
+              <Route path="/" element={<TeamsView />} />
+              <Route path="/games" element={<GamesView />} />
+              <Route path="/games/:id" element={<GameDetailView />} />
+              <Route path="/players" element={<PlayersView />} />
+              <Route path="/events" element={<EventsView />} />
+            </Routes>
+          </Content>
+        </Layout>
+      </Router>
+    </AntApp>
+  );
+};
+
+export default App;
