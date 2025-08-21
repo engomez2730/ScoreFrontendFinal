@@ -18,7 +18,15 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
 } from "@ant-design/icons";
-import { teamService, type Team as TeamType } from "../api";
+import { teamAPI } from "../services/apiService";
+
+interface TeamType {
+  id: number;
+  nombre: string;
+  logo?: string;
+  ciudad?: string;
+  categoria?: string;
+}
 
 const { Title, Text } = Typography;
 
@@ -51,9 +59,12 @@ const TeamsView: React.FC = () => {
   const loadTeams = async () => {
     setLoading(true);
     try {
-      const data = await teamService.getAll();
-      setTeams(data);
+      console.log("Loading teams from:", "http://localhost:4000/api/teams");
+      const response = await teamAPI.getTeams();
+      console.log("Teams response:", response);
+      setTeams(response.data);
     } catch (err) {
+      console.error("Error loading teams:", err);
       notification.error({
         message: "Error",
         description: "No se pudieron cargar los equipos",
@@ -70,7 +81,7 @@ const TeamsView: React.FC = () => {
 
   const handleCreate = async (values: TeamFormValues) => {
     try {
-      await teamService.create(values);
+      await teamAPI.createTeam(values);
       notification.success({
         message: "Éxito",
         description: "Equipo creado correctamente",
@@ -91,7 +102,7 @@ const TeamsView: React.FC = () => {
   const handleEdit = async (values: TeamFormValues) => {
     try {
       if (!editingTeam) return;
-      await teamService.update(editingTeam.id, values);
+      await teamAPI.updateTeam(editingTeam.id, values);
       notification.success({
         message: "Éxito",
         description: "Equipo actualizado correctamente",
@@ -112,7 +123,7 @@ const TeamsView: React.FC = () => {
 
   const handleDelete = async (id: number) => {
     try {
-      await teamService.delete(id);
+      await teamAPI.deleteTeam(id);
       notification.success({
         message: "Éxito",
         description: "Equipo eliminado correctamente",

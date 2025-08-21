@@ -18,9 +18,25 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
 } from "@ant-design/icons";
-import type { Team, Player } from "../api";
-import { teamService } from "../api";
-import axios from "axios";
+import { teamAPI, playerAPI } from "../services/apiService";
+
+interface Team {
+  id: number;
+  nombre: string;
+  logo?: string;
+  ciudad?: string;
+  categoria?: string;
+}
+
+interface Player {
+  id: number;
+  nombre: string;
+  apellido: string;
+  numero: number;
+  posicion: string;
+  teamId: number;
+  team?: Team;
+}
 
 const { Title } = Typography;
 
@@ -48,9 +64,12 @@ const PlayersView: React.FC = () => {
 
   const fetchTeams = async () => {
     try {
-      const teamsData = await teamService.getAll();
-      setTeams(teamsData);
+      console.log("Loading teams from:", "http://localhost:4000/api/teams");
+      const response = await teamAPI.getTeams();
+      console.log("Teams response:", response);
+      setTeams(response.data);
     } catch (err) {
+      console.error("Error loading teams:", err);
       notification.error({
         message: "Error al cargar equipos",
         description: "No se pudieron cargar los equipos",
@@ -62,7 +81,8 @@ const PlayersView: React.FC = () => {
   const fetchPlayers = async () => {
     setLoading(true);
     try {
-      const response = await axios.get("http://localhost:4000/players");
+      console.log("Loading players from:", "http://localhost:4000/api/players");
+      const response = await playerAPI.getPlayers();
       console.log("Fetched players:", response.data); // Debug log
       setPlayers(response.data);
     } catch (err) {
@@ -91,10 +111,7 @@ const PlayersView: React.FC = () => {
       };
 
       console.log("Creating player with data:", playerData); // Debug log
-      const response = await axios.post(
-        "http://localhost:4000/players",
-        playerData
-      );
+      const response = await playerAPI.createPlayer(playerData);
       console.log("Server response:", response.data); // Debug log
 
       notification.success({
@@ -119,10 +136,7 @@ const PlayersView: React.FC = () => {
   const handleEdit = async (values: PlayerFormValues) => {
     try {
       if (!editingPlayer) return;
-      await axios.put(
-        `http://localhost:4000/players/${editingPlayer.id}`,
-        values
-      );
+      await playerAPI.updatePlayer(editingPlayer.id, values);
       notification.success({
         message: "Éxito",
         description: "Jugador actualizado correctamente",
@@ -143,7 +157,7 @@ const PlayersView: React.FC = () => {
 
   const handleDelete = async (id: number) => {
     try {
-      await axios.delete(`http://localhost:4000/players/${id}`);
+      await playerAPI.deletePlayer(id);
       notification.success({
         message: "Éxito",
         description: "Jugador eliminado correctamente",

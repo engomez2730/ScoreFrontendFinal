@@ -18,8 +18,8 @@ import {
   RedoOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
+import axios from "axios";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
-import { gameAPI, teamAPI, substitutionAPI } from "../services/apiService";
 
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
@@ -126,6 +126,19 @@ const GameDetailView: React.FC = () => {
     visible: boolean;
     player: Player | null;
   }>({ visible: false, player: null });
+  const [statInput, setStatInput] = useState({
+    puntos: 0,
+    rebotes: 0,
+    asistencias: 0,
+    robos: 0,
+    tapones: 0,
+    tirosIntentados: 0,
+    tirosAnotados: 0,
+    tiros3Intentados: 0,
+    tiros3Anotados: 0,
+    minutos: 0,
+    plusMinus: 0,
+  });
 
   // Get 5 on-court and bench players for each team
   const getOnCourtPlayers = (team: Team) => {
@@ -138,36 +151,45 @@ const GameDetailView: React.FC = () => {
   // Handle stat modal open/close
   const openStatModal = (player: Player) => {
     setStatModal({ visible: true, player });
+    setStatInput({
+      puntos: 0,
+      rebotes: 0,
+      asistencias: 0,
+      robos: 0,
+      tapones: 0,
+      tirosIntentados: 0,
+      tirosAnotados: 0,
+      tiros3Intentados: 0,
+      tiros3Anotados: 0,
+      minutos: 0,
+      plusMinus: 0,
+    });
   };
   const closeStatModal = () => setStatModal({ visible: false, player: null });
 
-  // Record shot (intelligent shot tracking)
-  const recordShot = async (shotType: string, made: boolean) => {
+  // Save stats (following documentation API)
+  const saveStats = async () => {
     if (!statModal.player || !game) return;
 
     try {
-      await gameAPI.recordShot(game.id, {
-        playerId: statModal.player.id,
-        shotType,
-        made,
-      });
+      await axios.put(
+        `http://localhost:4000/api/games/${game.id}/player-stats`,
+        {
+          playerId: statModal.player.id,
+          stats: statInput,
+        }
+      );
 
       notification.success({
-        message: "Shot Recorded",
-        description: `${
-          made ? "Made" : "Missed"
-        } ${shotType.toUpperCase()} for ${statModal.player.nombre} ${
-          statModal.player.apellido
-        }`,
+        message: "Estadísticas guardadas",
+        description: `Stats updated for ${statModal.player.nombre} ${statModal.player.apellido}`,
       });
 
       closeStatModal();
-      // Refresh game data to update stats
-      loadGameData();
     } catch (error) {
       notification.error({
         message: "Error",
-        description: "Could not record shot",
+        description: "No se pudieron guardar las estadísticas",
       });
     }
   };
@@ -177,7 +199,9 @@ const GameDetailView: React.FC = () => {
     if (!game) return;
 
     try {
-      await gameAPI.updateGameTime(game.id, seconds);
+      await axios.put(`http://localhost:4000/api/games/${game.id}/time`, {
+        gameTime: seconds,
+      });
     } catch (error) {
       console.error("Error updating game time:", error);
     }
@@ -212,7 +236,9 @@ const GameDetailView: React.FC = () => {
 
     if (game) {
       try {
-        await gameAPI.resetGameTime(game.id);
+        await axios.post(
+          `http://localhost:4000/api/games/${game.id}/reset-time`
+        );
       } catch (error) {
         console.error("Error resetting game time:", error);
       }
@@ -224,7 +250,10 @@ const GameDetailView: React.FC = () => {
     if (!game) return;
 
     try {
-      await gameAPI.updateScore(game.id, homeScore, awayScore);
+      await axios.put(`http://localhost:4000/api/games/${game.id}/score`, {
+        homeScore,
+        awayScore,
+      });
 
       setHomeTeam((prev) => (prev ? { ...prev, score: homeScore } : null));
       setAwayTeam((prev) => (prev ? { ...prev, score: awayScore } : null));
@@ -247,23 +276,16 @@ const GameDetailView: React.FC = () => {
   }, [id]);
 
   const loadGameData = async () => {
-    console.log("Loading game data for ID:", id);
     try {
-      console.log("Fetching game from:", `http://localhost:4000/api/games/${id}`);
-      const gameResponse = await gameAPI.getGame(id!);
-      console.log("Game response:", gameResponse);
+      const gameResponse = await axios.get(`http://localhost:4000/games/${id}`);
       const game = gameResponse.data;
-      console.log("Game data:", game);
       setGame(game);
 
       // Load both teams and their players
-      console.log("Fetching teams:", game.teamHomeId, game.teamAwayId);
       const [homeTeamResponse, awayTeamResponse] = await Promise.all([
-        teamAPI.getTeam(game.teamHomeId),
-        teamAPI.getTeam(game.teamAwayId),
+        axios.get(`http://localhost:4000/teams/${game.teamHomeId}`),
+        axios.get(`http://localhost:4000/teams/${game.teamAwayId}`),
       ]);
-
-      console.log("Team responses:", homeTeamResponse, awayTeamResponse);
 
       const homeTeam = {
         ...homeTeamResponse.data,
@@ -284,12 +306,10 @@ const GameDetailView: React.FC = () => {
 
       setHomeTeam(homeTeam);
       setAwayTeam(awayTeam);
-      console.log("Game data loaded successfully");
     } catch (err) {
-      console.error("Error loading game data:", err);
       notification.error({
         message: "Error",
-        description: "No se pudo cargar la información del juego. Check console for details.",
+        description: "No se pudo cargar la información del juego",
       });
     }
   };
@@ -348,7 +368,7 @@ const GameDetailView: React.FC = () => {
         fecha: game.fecha,
       };
 
-      await gameAPI.updateGame(id!, gameUpdateData);
+      await axios.put(`http://localhost:4000/games/${id}`, gameUpdateData);
 
       // Then, create substitutions for each starter
       const timestamp = new Date().toISOString();
@@ -361,7 +381,7 @@ const GameDetailView: React.FC = () => {
           playerOutId: null,
           timestamp,
         };
-        await substitutionAPI.createSubstitution(substitution);
+        await axios.post("http://localhost:4000/substitutions", substitution);
       }
 
       // Process away team starters
@@ -372,7 +392,7 @@ const GameDetailView: React.FC = () => {
           playerOutId: null,
           timestamp,
         };
-        await substitutionAPI.createSubstitution(substitution);
+        await axios.post("http://localhost:4000/substitutions", substitution);
       }
 
       // Update local state
@@ -614,7 +634,7 @@ const GameDetailView: React.FC = () => {
                     border: "3px solid #fff",
                   }}
                   onClick={() => openStatModal(p)}
-                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record shots`}
+                  title={`${p.nombre} ${p.apellido} - ${p.posicion}`}
                 >
                   <b style={{ fontSize: 18 }}>{p.numero}</b>
                   <span style={{ fontSize: 10, fontWeight: "bold" }}>
@@ -648,7 +668,7 @@ const GameDetailView: React.FC = () => {
                     border: "3px solid #fff",
                   }}
                   onClick={() => openStatModal(p)}
-                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record shots`}
+                  title={`${p.nombre} ${p.apellido} - ${p.posicion}`}
                 >
                   <b style={{ fontSize: 18 }}>{p.numero}</b>
                   <span style={{ fontSize: 10, fontWeight: "bold" }}>
@@ -672,7 +692,6 @@ const GameDetailView: React.FC = () => {
                       border: "1px dashed #1890ff",
                     }}
                     onClick={() => openStatModal(p)}
-                    title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record shots`}
                   >
                     <b>{p.numero}</b>
                     <span style={{ fontSize: 12 }}>
@@ -694,7 +713,6 @@ const GameDetailView: React.FC = () => {
                       border: "1px dashed #1890ff",
                     }}
                     onClick={() => openStatModal(p)}
-                    title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record shots`}
                   >
                     <b>{p.numero}</b>
                     <span style={{ fontSize: 12 }}>
@@ -755,75 +773,184 @@ const GameDetailView: React.FC = () => {
         </Tabs>
       </Modal>
 
-      {/* Modal for tracking shots */}
+      {/* Modal for adding stats to a player */}
       <Modal
         title={
           statModal.player
-            ? `Record Shots - ${statModal.player.nombre} ${statModal.player.apellido}`
+            ? `Agregar stats a ${statModal.player.nombre} ${statModal.player.apellido}`
             : ""
         }
         open={statModal.visible}
+        onOk={saveStats}
         onCancel={closeStatModal}
-        footer={null}
-        width={500}
+        okText="Guardar"
+        cancelText="Cancelar"
+        width={600}
       >
-        <div style={{ textAlign: "center", padding: "20px 0" }}>
-          <Title level={4}>Basketball Shot Tracking</Title>
-          
-          {/* 2-Point Field Goal Attempts */}
-          <div style={{ marginBottom: 24 }}>
-            <Title level={5}>2-Point Field Goals</Title>
-            <Button
-              type="primary"
-              size="large"
-              style={{ 
-                width: "150px", 
-                marginRight: 16, 
-                backgroundColor: "#52c41a",
-                borderColor: "#52c41a"
-              }}
-              onClick={() => recordShot("2pt", true)}
-            >
-              SHOT MADE
-            </Button>
-            <Button
-              size="large"
-              style={{ width: "150px" }}
-              onClick={() => recordShot("2pt", false)}
-            >
-              SHOT TRIED
-            </Button>
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}
+        >
+          <div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>Puntos: </Text>
+              <input
+                type="number"
+                value={statInput.puntos}
+                min={0}
+                style={{ width: 80, marginLeft: 8 }}
+                onChange={(e) =>
+                  setStatInput({ ...statInput, puntos: Number(e.target.value) })
+                }
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>Rebotes: </Text>
+              <input
+                type="number"
+                value={statInput.rebotes}
+                min={0}
+                style={{ width: 80, marginLeft: 8 }}
+                onChange={(e) =>
+                  setStatInput({
+                    ...statInput,
+                    rebotes: Number(e.target.value),
+                  })
+                }
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>Asistencias: </Text>
+              <input
+                type="number"
+                value={statInput.asistencias}
+                min={0}
+                style={{ width: 80, marginLeft: 8 }}
+                onChange={(e) =>
+                  setStatInput({
+                    ...statInput,
+                    asistencias: Number(e.target.value),
+                  })
+                }
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>Robos: </Text>
+              <input
+                type="number"
+                value={statInput.robos}
+                min={0}
+                style={{ width: 80, marginLeft: 8 }}
+                onChange={(e) =>
+                  setStatInput({ ...statInput, robos: Number(e.target.value) })
+                }
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>Tapones: </Text>
+              <input
+                type="number"
+                value={statInput.tapones}
+                min={0}
+                style={{ width: 80, marginLeft: 8 }}
+                onChange={(e) =>
+                  setStatInput({
+                    ...statInput,
+                    tapones: Number(e.target.value),
+                  })
+                }
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>Minutos: </Text>
+              <input
+                type="number"
+                value={statInput.minutos}
+                min={0}
+                style={{ width: 80, marginLeft: 8 }}
+                onChange={(e) =>
+                  setStatInput({
+                    ...statInput,
+                    minutos: Number(e.target.value),
+                  })
+                }
+              />
+            </div>
           </div>
-
-          {/* 3-Point Field Goal Attempts */}
-          <div style={{ marginBottom: 16 }}>
-            <Title level={5}>3-Point Field Goals</Title>
-            <Button
-              type="primary"
-              size="large"
-              style={{ 
-                width: "150px", 
-                marginRight: 16, 
-                backgroundColor: "#1890ff",
-                borderColor: "#1890ff"
-              }}
-              onClick={() => recordShot("3pt", true)}
-            >
-              3PT MADE
-            </Button>
-            <Button
-              size="large"
-              style={{ width: "150px" }}
-              onClick={() => recordShot("3pt", false)}
-            >
-              3PT TRIED
-            </Button>
-          </div>
-
-          <div style={{ marginTop: 20, fontSize: 12, color: "#666" }}>
-            <p><strong>Basketball Rules Applied:</strong></p>
-            <p>• 3-pointers count as both field goals AND 3-pointers</p>
-            <p>• All stats automatically calculated by backend</p>
+          <div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>Tiros Intentados: </Text>
+              <input
+                type="number"
+                value={statInput.tirosIntentados}
+                min={0}
+                style={{ width: 80, marginLeft: 8 }}
+                onChange={(e) =>
+                  setStatInput({
+                    ...statInput,
+                    tirosIntentados: Number(e.target.value),
+                  })
+                }
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>Tiros Anotados: </Text>
+              <input
+                type="number"
+                value={statInput.tirosAnotados}
+                min={0}
+                style={{ width: 80, marginLeft: 8 }}
+                onChange={(e) =>
+                  setStatInput({
+                    ...statInput,
+                    tirosAnotados: Number(e.target.value),
+                  })
+                }
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>Tiros 3 Intentados: </Text>
+              <input
+                type="number"
+                value={statInput.tiros3Intentados}
+                min={0}
+                style={{ width: 80, marginLeft: 8 }}
+                onChange={(e) =>
+                  setStatInput({
+                    ...statInput,
+                    tiros3Intentados: Number(e.target.value),
+                  })
+                }
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>Tiros 3 Anotados: </Text>
+              <input
+                type="number"
+                value={statInput.tiros3Anotados}
+                min={0}
+                style={{ width: 80, marginLeft: 8 }}
+                onChange={(e) =>
+                  setStatInput({
+                    ...statInput,
+                    tiros3Anotados: Number(e.target.value),
+                  })
+                }
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>Plus/Minus: </Text>
+              <input
+                type="number"
+                value={statInput.plusMinus}
+                style={{ width: 80, marginLeft: 8 }}
+                onChange={(e) =>
+                  setStatInput({
+                    ...statInput,
+                    plusMinus: Number(e.target.value),
+                  })
+                }
+              />
+            </div>
           </div>
         </div>
       </Modal>

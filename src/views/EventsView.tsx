@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Button, Form, Input, Modal, Space, Table, message, App } from "antd";
 import { EditOutlined, DeleteOutlined } from "@ant-design/icons";
-import axios from "axios";
+import { eventAPI } from "../services/apiService";
 
 interface Event {
   id: number;
@@ -19,9 +19,12 @@ const EventsView: React.FC = () => {
 
   const fetchEvents = async () => {
     try {
-      const response = await axios.get("http://localhost:4000/events");
+      console.log("Loading events from:", "http://localhost:4000/api/events");
+      const response = await eventAPI.getEvents();
+      console.log("Events response:", response);
       setEvents(response.data);
     } catch (error) {
+      console.error("Error loading events:", error);
       notification.error({
         message: "Error",
         description: "No se pudieron cargar los eventos",
@@ -47,7 +50,7 @@ const EventsView: React.FC = () => {
         fechaFin: new Date(values.fechaFin).toISOString().split("T")[0],
       };
 
-      await axios.post("http://localhost:4000/events", formattedValues);
+      await eventAPI.createEvent(formattedValues);
       notification.success({
         message: "Éxito",
         description: "Evento creado correctamente",
@@ -73,10 +76,7 @@ const EventsView: React.FC = () => {
         fechaFin: new Date(values.fechaFin).toISOString().split("T")[0],
       };
 
-      await axios.put(
-        `http://localhost:4000/events/${editingEvent.id}`,
-        formattedValues
-      );
+      await eventAPI.updateEvent(editingEvent.id, formattedValues);
       notification.success({
         message: "Éxito",
         description: "Evento actualizado correctamente",
@@ -105,7 +105,7 @@ const EventsView: React.FC = () => {
 
   const handleDelete = async (id: number) => {
     try {
-      await axios.delete(`http://localhost:4000/events/${id}`);
+      await eventAPI.deleteEvent(id);
       notification.success({
         message: "Éxito",
         description: "Evento eliminado correctamente",

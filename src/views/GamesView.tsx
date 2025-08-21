@@ -21,8 +21,17 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
 } from "@ant-design/icons";
-import { gameService, teamService, type Game as GameType } from "../api";
+import { gameAPI, teamAPI } from "../services/apiService";
 import type { Dayjs } from "dayjs";
+
+interface GameType {
+  id: number;
+  teamHomeId: number;
+  teamAwayId: number;
+  eventId: number;
+  fecha: string;
+  estado: string;
+}
 
 const { Title, Text } = Typography;
 
@@ -67,10 +76,13 @@ const GamesView: React.FC = () => {
   const loadGames = async () => {
     setLoading(true);
     try {
-      const data = await gameService.getAll();
-      setGames(data);
+      console.log("Loading games from:", "http://localhost:4000/api/games");
+      const response = await gameAPI.getGames();
+      console.log("Games response:", response);
+      setGames(response.data);
     } catch (err: unknown) {
       const error = err as Error;
+      console.error("Error loading games:", error);
       notification.error({
         message: "Error al Cargar Juegos",
         description:
@@ -78,7 +90,6 @@ const GamesView: React.FC = () => {
           "No se pudieron cargar los juegos. Por favor, intente nuevamente.",
         icon: <CloseCircleOutlined style={{ color: "#ff4d4f" }} />,
       });
-      console.error("Error loading games:", error);
     } finally {
       setLoading(false);
     }
@@ -86,10 +97,13 @@ const GamesView: React.FC = () => {
 
   const loadTeams = async () => {
     try {
-      const data = await teamService.getAll();
-      setTeams(data);
+      console.log("Loading teams from:", "http://localhost:4000/api/teams");
+      const response = await teamAPI.getTeams();
+      console.log("Teams response:", response);
+      setTeams(response.data);
     } catch (err: unknown) {
       const error = err as Error;
+      console.error("Error loading teams:", error);
       notification.error({
         message: "Error al Cargar Equipos",
         description:
@@ -148,7 +162,7 @@ const GamesView: React.FC = () => {
         teamHomeId: values.teamHomeId,
         teamAwayId: values.teamAwayId,
       };
-      await gameService.create(gameData);
+      await gameAPI.createGame(gameData);
       notification.success({
         message: "Juego Creado",
         description: "El juego ha sido creado exitosamente.",
@@ -180,7 +194,7 @@ const GamesView: React.FC = () => {
         teamHomeId: values.teamHomeId,
         teamAwayId: values.teamAwayId,
       };
-      await gameService.update(editingGame.id, gameData);
+      await gameAPI.updateGame(editingGame.id, gameData);
       notification.success({
         message: "Juego Actualizado",
         description: "El juego ha sido actualizado exitosamente.",
@@ -206,7 +220,7 @@ const GamesView: React.FC = () => {
   const handleDeleteGame = async (gameId: number | undefined) => {
     if (!gameId) return;
     try {
-      await gameService.delete(gameId);
+      await gameAPI.deleteGame(gameId);
       notification.success({
         message: "Juego Eliminado",
         description: "El juego ha sido eliminado exitosamente.",
