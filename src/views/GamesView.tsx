@@ -21,7 +21,7 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
 } from "@ant-design/icons";
-import { gameAPI, teamAPI } from "../services/apiService";
+import { gameAPI, teamAPI, eventAPI } from "../services/apiService";
 import type { Dayjs } from "dayjs";
 
 interface GameType {
@@ -117,14 +117,17 @@ const GamesView: React.FC = () => {
 
   const loadEvents = async () => {
     try {
-      const response = await fetch("http://localhost:4000/events");
-      const data = await response.json();
-      setEvents(data);
+      console.log("Loading events...");
+      const response = await eventAPI.getEvents();
+      console.log("Events response:", response);
+      setEvents(response.data);
+      console.log("Events loaded:", response.data);
     } catch (error) {
       console.error("Error loading events:", error);
       notification.error({
-        message: "Error",
-        description: "No se pudieron cargar los eventos",
+        message: "Error al Cargar Eventos",
+        description: "No se pudieron cargar los eventos. Por favor, intente nuevamente.",
+        icon: <CloseCircleOutlined style={{ color: "#ff4d4f" }} />
       });
     }
   };
@@ -348,13 +351,13 @@ const GamesView: React.FC = () => {
               },
             ]}
           >
-            <Select
-              placeholder="Selecciona un evento"
-              options={events.map((event) => ({
-                value: event.id,
-                label: event.nombre,
-              }))}
-            />
+            <Select placeholder="Selecciona un evento">
+              {events && events.map((event) => (
+                <Select.Option key={event.id} value={event.id}>
+                  {event.nombre} ({new Date(event.fechaInicio).toLocaleDateString()} - {new Date(event.fechaFin).toLocaleDateString()})
+                </Select.Option>
+              ))}
+            </Select>
           </Form.Item>
 
           <Form.Item

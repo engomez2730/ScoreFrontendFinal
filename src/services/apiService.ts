@@ -45,8 +45,34 @@ export const gameAPI = {
   // Record shot (intelligent shot tracking)
   recordShot: (
     gameId: string | number,
-    shotData: { playerId: number; shotType: string; made: boolean }
+    shotData: {
+      playerId: number;
+      shotType: string;
+      made: boolean;
+      gameTime: number;
+      playerMinutes: number;
+    }
   ) => api.post(`/games/${gameId}/record-shot`, shotData),
+
+  // Record assist
+  recordAssist: (gameId: string | number, playerId: number) =>
+    api.post(`/games/${gameId}/record-assist`, { playerId }),
+
+  // Record rebound
+  recordRebound: (gameId: string | number, playerId: number) =>
+    api.post(`/games/${gameId}/record-rebound`, { playerId }),
+
+  // Record steal
+  recordSteal: (gameId: string | number, playerId: number) =>
+    api.post(`/games/${gameId}/record-steal`, { playerId }),
+
+  // Record block
+  recordBlock: (gameId: string | number, playerId: number) =>
+    api.post(`/games/${gameId}/record-block`, { playerId }),
+
+  // Record turnover
+  recordTurnover: (gameId: string | number, playerId: number) =>
+    api.post(`/games/${gameId}/record-turnover`, { playerId }),
 
   // Get game stats
   getGameStats: (gameId: string | number) => api.get(`/games/${gameId}/stats`),
