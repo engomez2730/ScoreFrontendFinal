@@ -11,15 +11,18 @@ import {
   App,
   List,
   Tag,
-  Tabs
+  Tabs,
+  message
 } from "antd";
 import {
   PlayCircleOutlined,
   PauseCircleOutlined,
-  RedoOutlined,
+
 } from "@ant-design/icons";
 
 import { gameAPI, teamAPI } from "../services/apiService";
+import gameService from "../api/gameService";
+import substitutionService from "../api/substitutionService";
 import axios from "axios";
 
 const { Title, Text } = Typography;
@@ -144,7 +147,7 @@ interface Game {
   }>;
 }
 
-const GameDetailView: React.FC = () => {
+const GameDetailView: React.FC = (): React.ReactNode => {
   const { id } = useParams<{ id: string }>();
   const { notification } = App.useApp();
   const [game, setGame] = useState<Game | null>(null);
@@ -157,7 +160,10 @@ const GameDetailView: React.FC = () => {
     away: number[];
   }>({ home: [], away: [] });
   const QUARTER_LENGTH = 600; // 10 minutes in seconds
-  const [gameTime, setGameTime] = useState(QUARTER_LENGTH);
+  const [gameTime, setGameTime] = useState(() => {
+    const savedTime = localStorage.getItem(`gameTime_${id}`);
+    return savedTime ? parseInt(savedTime) : QUARTER_LENGTH;
+  });
   const [isClockRunning, setIsClockRunning] = useState(false);
   const [timerInterval, setTimerInterval] = useState<ReturnType<typeof setInterval> | null>(null);
   const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>({});
@@ -171,12 +177,35 @@ const GameDetailView: React.FC = () => {
     activeTab: 'shots'
   });
 
+  const [substitutionState, setSubstitutionState] = useState<{
+    isSelecting: boolean;
+    selectedTeam: 'home' | 'away' | null;
+    playerOut: Player | null;
+  }>({
+    isSelecting: false,
+    selectedTeam: null,
+    playerOut: null
+  });
+
   // Get 5 on-court and bench players for each team
   const getOnCourtPlayers = (team: Team) => {
     return team.players.filter((p) => p.isOnCourt);
   };
   const getBenchPlayers = (team: Team) => {
     return team.players.filter((p) => !p.isOnCourt);
+  };
+
+  // Fetch game data
+  const fetchGameData = async () => {
+    try {
+      if (id) {
+        const gameData = await gameService.getById(Number(id));
+        setGame(gameData);
+      }
+    } catch (error) {
+      console.error('Error fetching game data:', error);
+      message.error('Failed to refresh game data');
+    }
   };
 
   // Handle stats modal
@@ -186,6 +215,151 @@ const GameDetailView: React.FC = () => {
 
   const closeStatsModal = () => {
     setStatsModal({ visible: false, player: null, activeTab: 'shots' });
+  };
+
+  // Handle substitutions
+  const startSubstitution = (player: Player, team: 'home' | 'away') => {
+    if (!isClockRunning) {
+      setSubstitutionState({
+        isSelecting: true,
+        selectedTeam: team,
+        playerOut: player
+      });
+      message.info('Select a player from the bench to substitute in');
+    } else {
+      message.warning('Stop the clock before making substitutions');
+    }
+  };
+
+  const completeSubstitution = async (playerIn: Player) => {
+    if (!game || !substitutionState.playerOut) {
+      message.error('Missing game or player data for substitution');
+      return;
+    }
+
+    try {
+      const substitutionData = {
+        playerOutId: Number(substitutionState.playerOut.id),
+        playerInId: Number(playerIn.id),
+        gameTime: Number(gameTime)
+      };
+
+      console.log('Making substitution with:', substitutionData);
+      
+      const response = await substitutionService.create(game.id, substitutionData);
+      console.log('Substitution response:', response);
+
+      // Update the UI to reflect the substitution
+      if (response.data) {
+        message.success('Substitution completed successfully');
+        // Reset substitution state
+        setSubstitutionState({
+          isSelecting: false,
+          selectedTeam: null,
+          playerOut: null
+        });
+        // Refresh game data to show updated players
+        await fetchGameData();
+      }
+    } catch (error) {
+      console.error('Substitution error:', error);
+      message.error('Failed to complete substitution');
+    }
+
+    if (playerIn.id === substitutionState.playerOut.id) {
+      message.error('Cannot substitute a player with themselves');
+      return;
+    }
+
+    // Verify the players' status
+    const targetTeam = substitutionState.selectedTeam === 'home' ? homeTeam : awayTeam;
+    const actualPlayerOut = targetTeam?.players.find(p => p.id === substitutionState.playerOut?.id);
+    const actualPlayerIn = targetTeam?.players.find(p => p.id === playerIn.id);
+
+    console.log('Current team players status:', {
+      team: targetTeam?.nombre,
+      onCourt: targetTeam?.players.filter(p => p.isOnCourt).map(p => ({ id: p.id, name: p.nombre })),
+      onBench: targetTeam?.players.filter(p => !p.isOnCourt).map(p => ({ id: p.id, name: p.nombre }))
+    });
+
+    if (!actualPlayerOut?.isOnCourt) {
+      message.error('Selected player to substitute out is not on the court');
+      return;
+    }
+
+    if (actualPlayerIn?.isOnCourt) {
+      message.error('Selected player to substitute in is already on the court');
+      return;
+    }
+
+    if (!substitutionState.selectedTeam || (substitutionState.selectedTeam === 'home' && playerIn.teamId !== homeTeam?.id) || 
+        (substitutionState.selectedTeam === 'away' && playerIn.teamId !== awayTeam?.id)) {
+      message.error('Cannot substitute players from different teams');
+      return;
+    }
+
+    // Prepare the exact request format that works in Postman
+    const substitutionData = {
+      playerOutId: Number(substitutionState.playerOut.id),
+      playerInId: Number(playerIn.id),
+      gameTime: Number(gameTime)
+    };
+
+    console.log('Making substitution with:', substitutionData);
+
+    try {
+      // Call the substitution API with the correct format
+      await substitutionService.create(Number(game.id), substitutionData);
+
+      // Update local state
+      if (homeTeam && awayTeam && substitutionState.playerOut) {
+        const targetTeam = substitutionState.selectedTeam === 'home' ? homeTeam : awayTeam;
+        const updatedPlayers = targetTeam.players.map(p => {
+          if (p.id === playerIn.id) {
+            return { ...p, isOnCourt: true };
+          }
+          if (p.id === substitutionState.playerOut?.id) {
+            return { ...p, isOnCourt: false };
+          }
+          return p;
+        });
+
+        if (substitutionState.selectedTeam === 'home') {
+          setHomeTeam({ ...homeTeam, players: updatedPlayers });
+        } else {
+          setAwayTeam({ ...awayTeam, players: updatedPlayers });
+        }
+      }
+
+      message.success('Substitution completed successfully');
+      setSubstitutionState({
+        isSelecting: false,
+        selectedTeam: null,
+        playerOut: null
+      });
+    } catch (error: any) {
+      console.error('Error making substitution:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to make substitution';
+      message.error(errorMessage);
+
+      // Log detailed error information
+      console.log('Substitution error details:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        gameId: game.id,
+        playerIn: playerIn,
+        playerOut: substitutionState.playerOut
+      });
+    }
+  };
+
+  const cancelSubstitution = () => {
+    setSubstitutionState({
+      isSelecting: false,
+      selectedTeam: null,
+      playerOut: null
+    });
+    message.info('Substitution cancelled');
   };
 
   const recordStat = async (statType: 'assist' | 'rebound' | 'steal' | 'block' | 'turnover') => {
@@ -266,6 +440,13 @@ const GameDetailView: React.FC = () => {
     }
   };
 
+  // Save game time to local storage whenever it changes
+  useEffect(() => {
+    if (game) {
+      localStorage.setItem(`gameTime_${id}`, gameTime.toString());
+    }
+  }, [gameTime, id, game]);
+
   // Format time as MM:SS
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -321,23 +502,81 @@ const GameDetailView: React.FC = () => {
     setIsClockRunning(true);
   };
 
-  const stopTimer = () => {
+  const stopTimer = async () => {
     if (timerInterval) {
       clearInterval(timerInterval);
       setTimerInterval(null);
     }
     setIsClockRunning(false);
-  };
 
-  const resetTimer = async () => {
-    stopTimer();
-    setGameTime(QUARTER_LENGTH);
+    // Save full game state when timer stops
+    if (!game || !homeTeam || !awayTeam) {
+      message.error("Cannot save game state: missing game or team data");
+      return;
+    }
 
+    try {
+      // Collect all player stats
+      const playerStats = [...homeTeam.players, ...awayTeam.players].map(player => ({
+        playerId: player.id,
+        puntos: player.stats?.puntos || 0,
+        rebotes: player.stats?.rebotes || 0,
+        asistencias: player.stats?.asistencias || 0,
+        robos: player.stats?.robos || 0,
+        tapones: player.stats?.tapones || 0,
+        tirosIntentados: player.stats?.tirosIntentados || 0,
+        tirosAnotados: player.stats?.tirosAnotados || 0,
+        tiros3Intentados: player.stats?.tiros3Intentados || 0,
+        tiros3Anotados: player.stats?.tiros3Anotados || 0,
+        minutos: player.stats?.minutos || 0,
+        plusMinus: player.stats?.plusMinus || 0,
+      }));
+
+      await gameAPI.saveGameState(game.id, {
+        homeScore: homeTeam.score,
+        awayScore: awayTeam.score,
+        currentQuarter: Math.ceil((QUARTER_LENGTH * 4 - gameTime) / QUARTER_LENGTH),
+        quarterTime: gameTime % QUARTER_LENGTH,
+        gameTime: gameTime,
+        playerStats
+      });
+
+      message.success("Game state saved successfully");
+    } catch (error) {
+      console.error("Error saving game state:", error);
+      message.error("Failed to save game state");
+    }
+
+    // Save full game state when timer stops
     if (game) {
       try {
-        await gameAPI.resetGameTime(game.id);
+        // Collect all player stats
+        const playerStats = [...homeTeam.players, ...awayTeam.players].map(player => ({
+          playerId: player.id,
+          puntos: player.stats?.puntos || 0,
+          rebotes: player.stats?.rebotes || 0,
+          asistencias: player.stats?.asistencias || 0,
+          robos: player.stats?.robos || 0,
+          tapones: player.stats?.tapones || 0,
+          tirosIntentados: player.stats?.tirosIntentados || 0,
+          tirosAnotados: player.stats?.tirosAnotados || 0,
+          tiros3Intentados: player.stats?.tiros3Intentados || 0,
+          tiros3Anotados: player.stats?.tiros3Anotados || 0,
+          minutos: player.stats?.minutos || 0,
+          plusMinus: player.stats?.plusMinus || 0,
+        }));
+
+        await gameAPI.saveGameState(game.id, {
+          homeScore: homeTeam.score,
+          awayScore: awayTeam.score,
+          currentQuarter: 1, // Default to first quarter
+          quarterTime: gameTime % QUARTER_LENGTH,
+          gameTime: gameTime,
+          playerStats
+        });
       } catch (error) {
-        console.error("Error resetting game time:", error);
+        console.error("Error saving game state:", error);
+        message.error("Failed to save game state");
       }
     }
   };
@@ -592,9 +831,6 @@ const GameDetailView: React.FC = () => {
                       ? `OT ${Math.floor(game.currentQuarter - game.totalQuarters + 1)}` 
                       : `Q${game.currentQuarter}`}
                   </Title>
-                  <Text strong style={{ fontSize: '18px' }}>
-                    {formatTime(game.quarterTime)}
-                  </Text>
                   <Tag color="blue" style={{ marginTop: '4px' }}>
                     {game.event.nombre}
                   </Tag>
@@ -622,7 +858,10 @@ const GameDetailView: React.FC = () => {
                 </Space>
               )}
               {game.estado === "in_progress" && (
-                <Space>
+                <div style={{ textAlign: 'center' }}>
+                  <Title level={1} style={{ margin: '0 0 16px 0', fontSize: '48px' }}>
+                    {formatTime(gameTime)}
+                  </Title>
                   <Button
                     icon={
                       isClockRunning ? (
@@ -634,16 +873,11 @@ const GameDetailView: React.FC = () => {
                     onClick={() =>
                       isClockRunning ? stopTimer() : startTimer()
                     }
+                    size="large"
                   >
                     {isClockRunning ? "Pausar" : "Reanudar"}
                   </Button>
-                  <Button icon={<RedoOutlined />} onClick={resetTimer}>
-                    Reset
-                  </Button>
-                  <Text strong>
-                    {formatTime(gameTime)}
-                  </Text>
-                </Space>
+                </div>
               )}
             </Space>
           </Col>
@@ -720,8 +954,14 @@ const GameDetailView: React.FC = () => {
                     color: "white",
                     border: "3px solid #fff",
                   }}
-                  onClick={() => openStatsModal(p)}
-                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats`}
+                  onClick={(e) => {
+                    if (e.shiftKey || substitutionState.isSelecting) {
+                      startSubstitution(p, 'home');
+                    } else {
+                      openStatsModal(p);
+                    }
+                  }}
+                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats, Shift+Click to substitute`}
                 >
                   <b style={{ fontSize: 18 }}>{p.numero}</b>
                   <span style={{ fontSize: 10, fontWeight: "bold" }}>
@@ -733,9 +973,26 @@ const GameDetailView: React.FC = () => {
             <div
               style={{ width: "40%", textAlign: "center", alignSelf: "center" }}
             >
-              <Title level={2} style={{ color: "#b8860b", margin: 0 }}>
-                CANCHA
-              </Title>
+              <div>
+                <Title level={2} style={{ color: "#b8860b", margin: 0 }}>
+                  CANCHA
+                </Title>
+                {substitutionState.isSelecting && (
+                  <div style={{ marginTop: 8 }}>
+                    <Tag color="processing">
+                      Selecting substitute for {substitutionState.playerOut?.nombre}
+                    </Tag>
+                    <Button 
+                      size="small" 
+                      danger 
+                      onClick={cancelSubstitution}
+                      style={{ marginLeft: 8 }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
             <div
               style={{
@@ -754,8 +1011,14 @@ const GameDetailView: React.FC = () => {
                     color: "white",
                     border: "3px solid #fff",
                   }}
-                  onClick={() => openStatsModal(p)}
-                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats`}
+                  onClick={(e) => {
+                    if (e.shiftKey || substitutionState.isSelecting) {
+                      startSubstitution(p, 'away');
+                    } else {
+                      openStatsModal(p);
+                    }
+                  }}
+                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats, Shift+Click to substitute`}
                 >
                   <b style={{ fontSize: 18 }}>{p.numero}</b>
                   <span style={{ fontSize: 10, fontWeight: "bold" }}>
@@ -776,10 +1039,25 @@ const GameDetailView: React.FC = () => {
                     style={{
                       ...playerCircle,
                       background: "#e6f7ff",
-                      border: "1px dashed #1890ff",
+                      border: substitutionState.isSelecting && substitutionState.selectedTeam === 'home' 
+                        ? "3px solid #52c41a" 
+                        : "1px dashed #1890ff",
+                      cursor: substitutionState.isSelecting && substitutionState.selectedTeam === 'home' 
+                        ? "pointer" 
+                        : "default"
                     }}
-                    onClick={() => openStatModal(p)}
-                    title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record shots`}
+                    onClick={() => {
+                      if (substitutionState.isSelecting && substitutionState.selectedTeam === 'home') {
+                        completeSubstitution(p);
+                      } else if (!substitutionState.isSelecting) {
+                        openStatsModal(p);
+                      }
+                    }}
+                    title={
+                      substitutionState.isSelecting && substitutionState.selectedTeam === 'home'
+                        ? `Click to substitute in ${p.nombre}`
+                        : `${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats`
+                    }
                   >
                     <b>{p.numero}</b>
                     <span style={{ fontSize: 12 }}>
@@ -798,10 +1076,25 @@ const GameDetailView: React.FC = () => {
                     style={{
                       ...playerCircle,
                       background: "#e6f7ff",
-                      border: "1px dashed #1890ff",
+                      border: substitutionState.isSelecting && substitutionState.selectedTeam === 'away' 
+                        ? "3px solid #52c41a" 
+                        : "1px dashed #1890ff",
+                      cursor: substitutionState.isSelecting && substitutionState.selectedTeam === 'away' 
+                        ? "pointer" 
+                        : "default"
                     }}
-                    onClick={() => openStatModal(p)}
-                    title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record shots`}
+                    onClick={() => {
+                      if (substitutionState.isSelecting && substitutionState.selectedTeam === 'away') {
+                        completeSubstitution(p);
+                      } else if (!substitutionState.isSelecting) {
+                        openStatsModal(p);
+                      }
+                    }}
+                    title={
+                      substitutionState.isSelecting && substitutionState.selectedTeam === 'away'
+                        ? `Click to substitute in ${p.nombre}`
+                        : `${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats`
+                    }
                   >
                     <b>{p.numero}</b>
                     <span style={{ fontSize: 12 }}>

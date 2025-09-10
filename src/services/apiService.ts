@@ -38,6 +38,9 @@ export const gameAPI = {
     awayScore: number
   ) => api.put(`/games/${gameId}/score`, { homeScore, awayScore }),
 
+  // Get active players
+  getActivePlayers: (gameId: string | number) => api.get(`/games/${gameId}/active-players`),
+
   // Update player stats
   updatePlayerStats: (gameId: string | number, playerId: number, stats: any) =>
     api.put(`/games/${gameId}/player-stats`, { playerId, stats }),
@@ -73,6 +76,32 @@ export const gameAPI = {
   // Record turnover
   recordTurnover: (gameId: string | number, playerId: number) =>
     api.post(`/games/${gameId}/record-turnover`, { playerId }),
+
+  // Save full game state
+  saveGameState: (
+    gameId: string | number,
+    gameState: {
+      homeScore: number;
+      awayScore: number;
+      currentQuarter: number;
+      quarterTime: number;
+      gameTime: number;
+      playerStats: Array<{
+        playerId: number;
+        puntos: number;
+        rebotes: number;
+        asistencias: number;
+        robos: number;
+        tapones: number;
+        tirosIntentados: number;
+        tirosAnotados: number;
+        tiros3Intentados: number;
+        tiros3Anotados: number;
+        minutos: number;
+        plusMinus: number;
+      }>;
+    }
+  ) => api.put(`/games/${gameId}/full-update`, gameState),
 
   // Get game stats
   getGameStats: (gameId: string | number) => api.get(`/games/${gameId}/stats`),
