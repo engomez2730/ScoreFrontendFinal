@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import React, { useEffect, useState, useCallback } from "react";
+import { useParams, Link } from "react-router-dom";
 import {
   Row,
   Col,
@@ -12,21 +12,18 @@ import {
   List,
   Tag,
   Tabs,
-  message
+  message,
 } from "antd";
 import {
   PlayCircleOutlined,
   PauseCircleOutlined,
-
+  BarChartOutlined,
 } from "@ant-design/icons";
 
 import { gameAPI, teamAPI } from "../services/apiService";
 import gameService from "../api/gameService";
-import substitutionService from "../api/substitutionService";
-import axios from "axios";
 
 const { Title, Text } = Typography;
-
 
 // Simple styles for court and benches
 const courtStyle: React.CSSProperties = {
@@ -165,26 +162,31 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     return savedTime ? parseInt(savedTime) : QUARTER_LENGTH;
   });
   const [isClockRunning, setIsClockRunning] = useState(false);
-  const [timerInterval, setTimerInterval] = useState<ReturnType<typeof setInterval> | null>(null);
-  const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>({});
+  const [timerInterval, setTimerInterval] = useState<ReturnType<
+    typeof setInterval
+  > | null>(null);
+  // Track player minutes in milliseconds for backend compatibility
+  const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>(
+    {}
+  );
   const [statsModal, setStatsModal] = useState<{
     visible: boolean;
     player: Player | null;
-    activeTab: 'shots' | 'other';
+    activeTab: "shots" | "other";
   }>({
     visible: false,
     player: null,
-    activeTab: 'shots'
+    activeTab: "shots",
   });
 
   const [substitutionState, setSubstitutionState] = useState<{
     isSelecting: boolean;
-    selectedTeam: 'home' | 'away' | null;
+    selectedTeam: "home" | "away" | null;
     playerOut: Player | null;
   }>({
     isSelecting: false,
     selectedTeam: null,
-    playerOut: null
+    playerOut: null,
   });
 
   // Get 5 on-court and bench players for each team
@@ -203,152 +205,203 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         setGame(gameData);
       }
     } catch (error) {
-      console.error('Error fetching game data:', error);
-      message.error('Failed to refresh game data');
+      console.error("Error fetching game data:", error);
+      message.error("Failed to refresh game data");
     }
   };
 
   // Handle stats modal
-  const openStatsModal = (player: Player, activeTab: 'shots' | 'other' = 'shots') => {
+  const openStatsModal = (
+    player: Player,
+    activeTab: "shots" | "other" = "shots"
+  ) => {
+    console.log("Opening stats modal for player:", player);
+    console.log("Clock running:", isClockRunning);
+    console.log("Player on court:", player.isOnCourt);
+
+    // Check if the clock is running
+    if (!isClockRunning) {
+      message.warning({
+        content: "El reloj debe estar corriendo para registrar estadísticas",
+        duration: 3,
+      });
+      return;
+    }
+
+    // Check if the player is on the court
+    if (!player.isOnCourt) {
+      message.warning({
+        content: `${player.nombre} ${player.apellido} debe estar en la cancha para registrar estadísticas`,
+        duration: 3,
+      });
+      return;
+    }
+
+    console.log("All validations passed, opening modal");
     setStatsModal({ visible: true, player, activeTab });
   };
 
   const closeStatsModal = () => {
-    setStatsModal({ visible: false, player: null, activeTab: 'shots' });
+    setStatsModal({ visible: false, player: null, activeTab: "shots" });
   };
 
   // Handle substitutions
-  const startSubstitution = (player: Player, team: 'home' | 'away') => {
+  const startSubstitution = (player: Player, team: "home" | "away") => {
     if (!isClockRunning) {
       setSubstitutionState({
         isSelecting: true,
         selectedTeam: team,
-        playerOut: player
+        playerOut: player,
       });
-      message.info('Select a player from the bench to substitute in');
+      message.info({
+        content: `${player.nombre} ${player.apellido} seleccionado. Elige un jugador del banco para sustituir.`,
+        duration: 3,
+      });
     } else {
-      message.warning('Stop the clock before making substitutions');
+      message.warning({
+        content: "Detén el reloj antes de hacer sustituciones",
+        duration: 3,
+      });
     }
   };
 
   const completeSubstitution = async (playerIn: Player) => {
     if (!game || !substitutionState.playerOut) {
-      message.error('Missing game or player data for substitution');
+      message.error("Missing game or player data for substitution");
       return;
     }
 
-    try {
-      const substitutionData = {
-        playerOutId: Number(substitutionState.playerOut.id),
-        playerInId: Number(playerIn.id),
-        gameTime: Number(gameTime)
-      };
-
-      console.log('Making substitution with:', substitutionData);
-      
-      const response = await substitutionService.create(game.id, substitutionData);
-      console.log('Substitution response:', response);
-
-      // Update the UI to reflect the substitution
-      if (response.data) {
-        message.success('Substitution completed successfully');
-        // Reset substitution state
-        setSubstitutionState({
-          isSelecting: false,
-          selectedTeam: null,
-          playerOut: null
-        });
-        // Refresh game data to show updated players
-        await fetchGameData();
-      }
-    } catch (error) {
-      console.error('Substitution error:', error);
-      message.error('Failed to complete substitution');
-    }
-
+    // Basic validation
     if (playerIn.id === substitutionState.playerOut.id) {
-      message.error('Cannot substitute a player with themselves');
+      message.error("Cannot substitute a player with themselves");
       return;
     }
 
     // Verify the players' status
-    const targetTeam = substitutionState.selectedTeam === 'home' ? homeTeam : awayTeam;
-    const actualPlayerOut = targetTeam?.players.find(p => p.id === substitutionState.playerOut?.id);
-    const actualPlayerIn = targetTeam?.players.find(p => p.id === playerIn.id);
-
-    console.log('Current team players status:', {
-      team: targetTeam?.nombre,
-      onCourt: targetTeam?.players.filter(p => p.isOnCourt).map(p => ({ id: p.id, name: p.nombre })),
-      onBench: targetTeam?.players.filter(p => !p.isOnCourt).map(p => ({ id: p.id, name: p.nombre }))
-    });
+    const targetTeam =
+      substitutionState.selectedTeam === "home" ? homeTeam : awayTeam;
+    const actualPlayerOut = targetTeam?.players.find(
+      (p) => p.id === substitutionState.playerOut?.id
+    );
+    const actualPlayerIn = targetTeam?.players.find(
+      (p) => p.id === playerIn.id
+    );
 
     if (!actualPlayerOut?.isOnCourt) {
-      message.error('Selected player to substitute out is not on the court');
+      message.error("Selected player to substitute out is not on the court");
       return;
     }
 
     if (actualPlayerIn?.isOnCourt) {
-      message.error('Selected player to substitute in is already on the court');
+      message.error("Selected player to substitute in is already on the court");
       return;
     }
 
-    if (!substitutionState.selectedTeam || (substitutionState.selectedTeam === 'home' && playerIn.teamId !== homeTeam?.id) || 
-        (substitutionState.selectedTeam === 'away' && playerIn.teamId !== awayTeam?.id)) {
-      message.error('Cannot substitute players from different teams');
+    if (
+      !substitutionState.selectedTeam ||
+      (substitutionState.selectedTeam === "home" &&
+        playerIn.teamId !== homeTeam?.id) ||
+      (substitutionState.selectedTeam === "away" &&
+        playerIn.teamId !== awayTeam?.id)
+    ) {
+      message.error("Cannot substitute players from different teams");
       return;
     }
-
-    // Prepare the exact request format that works in Postman
-    const substitutionData = {
-      playerOutId: Number(substitutionState.playerOut.id),
-      playerInId: Number(playerIn.id),
-      gameTime: Number(gameTime)
-    };
-
-    console.log('Making substitution with:', substitutionData);
 
     try {
-      // Call the substitution API with the correct format
-      await substitutionService.create(Number(game.id), substitutionData);
+      const currentGameTime = QUARTER_LENGTH - gameTime; // Convert countdown time to elapsed time
 
-      // Update local state
-      if (homeTeam && awayTeam && substitutionState.playerOut) {
-        const targetTeam = substitutionState.selectedTeam === 'home' ? homeTeam : awayTeam;
-        const updatedPlayers = targetTeam.players.map(p => {
-          if (p.id === playerIn.id) {
-            return { ...p, isOnCourt: true };
-          }
-          if (p.id === substitutionState.playerOut?.id) {
-            return { ...p, isOnCourt: false };
-          }
-          return p;
-        });
+      const substitutionData = {
+        gameId: Number(game.id),
+        playerOutId: Number(substitutionState.playerOut.id),
+        playerInId: Number(playerIn.id),
+        gameTime: currentGameTime,
+      };
 
-        if (substitutionState.selectedTeam === 'home') {
-          setHomeTeam({ ...homeTeam, players: updatedPlayers });
-        } else {
-          setAwayTeam({ ...awayTeam, players: updatedPlayers });
-        }
+      console.log("Making substitution with:", substitutionData);
+
+      // Determine which team endpoint to use
+      let response;
+      if (substitutionState.selectedTeam === "home") {
+        response = await gameAPI.makeHomeSubstitution(substitutionData);
+      } else {
+        response = await gameAPI.makeAwaySubstitution(substitutionData);
       }
 
-      message.success('Substitution completed successfully');
+      console.log("Substitution response:", response);
+
+      // Update the UI to reflect the substitution
+      if (response.data) {
+        const playerOutName =
+          substitutionState.playerOut?.nombre +
+          " " +
+          substitutionState.playerOut?.apellido;
+        const playerInName = playerIn.nombre + " " + playerIn.apellido;
+
+        // Show detailed success message
+        message.success({
+          content: `Substitución exitosa: ${playerOutName} sale, ${playerInName} entra`,
+          duration: 4,
+        });
+
+        // Update local team state immediately for better UX
+        if (substitutionState.selectedTeam === "home" && homeTeam) {
+          const updatedHomePlayers = homeTeam.players.map((p) => {
+            if (p.id === playerIn.id) {
+              return { ...p, isOnCourt: true };
+            }
+            if (p.id === substitutionState.playerOut?.id) {
+              return { ...p, isOnCourt: false };
+            }
+            return p;
+          });
+          setHomeTeam({ ...homeTeam, players: updatedHomePlayers });
+        } else if (substitutionState.selectedTeam === "away" && awayTeam) {
+          const updatedAwayPlayers = awayTeam.players.map((p) => {
+            if (p.id === playerIn.id) {
+              return { ...p, isOnCourt: true };
+            }
+            if (p.id === substitutionState.playerOut?.id) {
+              return { ...p, isOnCourt: false };
+            }
+            return p;
+          });
+          setAwayTeam({ ...awayTeam, players: updatedAwayPlayers });
+        }
+
+        // Reset substitution state
+        setSubstitutionState({
+          isSelecting: false,
+          selectedTeam: null,
+          playerOut: null,
+        });
+
+        // Refresh game data to ensure consistency with backend
+        await loadGameData();
+
+        console.log(
+          `✅ Substitution completed: ${playerOutName} → ${playerInName}`
+        );
+      }
+    } catch (error: any) {
+      console.error("Substitution error:", error);
+
+      // Show specific error messages based on backend response
+      const errorMessage =
+        error?.response?.data?.error ||
+        error?.message ||
+        "Failed to complete substitution";
+
+      message.error({
+        content: `Error en substitución: ${errorMessage}`,
+        duration: 4,
+      });
+
+      // Reset substitution state on error
       setSubstitutionState({
         isSelecting: false,
         selectedTeam: null,
-        playerOut: null
-      });
-    } catch (error: any) {
-      console.error('Error making substitution:', error);
-      const errorMessage = error.response?.data?.message || 'Failed to make substitution';
-      message.error(errorMessage);
-
-      // Log detailed error information
-      console.log('Substitution error details:', {
-        status: error.response?.status,
-        data: error.response?.data,
-        gameId: game.id,
-        playerIn: playerIn,
-        playerOut: substitutionState.playerOut
+        playerOut: null,
       });
     }
   };
@@ -357,46 +410,94 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     setSubstitutionState({
       isSelecting: false,
       selectedTeam: null,
-      playerOut: null
+      playerOut: null,
     });
-    message.info('Substitution cancelled');
+    message.info({
+      content: "Sustitución cancelada",
+      duration: 2,
+    });
   };
 
-  const recordStat = async (statType: 'assist' | 'rebound' | 'steal' | 'block' | 'turnover') => {
-    if (!statsModal.player || !game) return;
+  const recordStat = async (
+    statType: "assist" | "rebound" | "steal" | "block" | "turnover"
+  ) => {
+    console.log("recordStat called:", {
+      statType,
+      player: statsModal.player?.nombre,
+    });
+
+    if (!statsModal.player || !game) {
+      console.log("Missing player or game data");
+      return;
+    }
+
+    // Validate clock is running
+    if (!isClockRunning) {
+      console.log("Clock not running");
+      notification.error({
+        message: "Error",
+        description:
+          "El reloj debe estar corriendo para registrar estadísticas",
+      });
+      return;
+    }
+
+    // Validate player is on court
+    if (!statsModal.player.isOnCourt) {
+      console.log("Player not on court");
+      notification.error({
+        message: "Error",
+        description:
+          "El jugador debe estar en la cancha para registrar estadísticas",
+      });
+      return;
+    }
 
     try {
-
+      console.log("Making API call to record stat...");
       switch (statType) {
-        case 'assist':
+        case "assist":
           await gameAPI.recordAssist(game.id, statsModal.player.id);
           break;
-        case 'rebound':
+        case "rebound":
           await gameAPI.recordRebound(game.id, statsModal.player.id);
           break;
-        case 'steal':
+        case "steal":
           await gameAPI.recordSteal(game.id, statsModal.player.id);
           break;
-        case 'block':
+        case "block":
           await gameAPI.recordBlock(game.id, statsModal.player.id);
           break;
-        case 'turnover':
+        case "turnover":
           await gameAPI.recordTurnover(game.id, statsModal.player.id);
           break;
       }
 
+      console.log("Stat recorded successfully");
       notification.success({
         message: "Estadística Registrada",
         description: `Se registró un ${
-          statType === 'assist' ? 'asistencia' :
-          statType === 'rebound' ? 'rebote' :
-          statType === 'steal' ? 'robo' : 
-          statType === 'turnover' ? 'pérdida' : 'tapón'
+          statType === "assist"
+            ? "asistencia"
+            : statType === "rebound"
+            ? "rebote"
+            : statType === "steal"
+            ? "robo"
+            : statType === "turnover"
+            ? "pérdida"
+            : "tapón"
         } para ${statsModal.player.nombre} ${statsModal.player.apellido}`,
       });
 
-      loadGameData(); // Refresh game data to update stats
+      // Only refresh game stats, don't reload everything to avoid restart
+      try {
+        const updatedGame = await gameAPI.getGame(game.id);
+        setGame(updatedGame.data);
+      } catch (error) {
+        console.error("Error refreshing game data:", error);
+      }
     } catch (error) {
+      console.error("Error recording stat:", error);
       notification.error({
         message: "Error",
         description: "No se pudo registrar la estadística",
@@ -406,33 +507,73 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
   // Record shot (intelligent shot tracking)
   const recordShot = async (shotType: string, made: boolean) => {
-    if (!statsModal.player || !game) return;
+    console.log("recordShot called:", {
+      shotType,
+      made,
+      player: statsModal.player?.nombre,
+    });
+
+    if (!statsModal.player || !game) {
+      console.log("Missing player or game data");
+      return;
+    }
+
+    // Validate clock is running
+    if (!isClockRunning) {
+      console.log("Clock not running");
+      notification.error({
+        message: "Error",
+        description: "El reloj debe estar corriendo para registrar tiros",
+      });
+      return;
+    }
+
+    // Validate player is on court
+    if (!statsModal.player.isOnCourt) {
+      console.log("Player not on court");
+      notification.error({
+        message: "Error",
+        description: "El jugador debe estar en la cancha para registrar tiros",
+      });
+      return;
+    }
 
     try {
+      console.log("Making API call to record shot...");
       const currentGameTime = QUARTER_LENGTH - gameTime; // Convert countdown time to elapsed time
-      const playerMinutesPlayed = Math.floor((playerMinutes[statsModal.player.id] || 0) / 60); // Convert seconds to minutes
+      console.log("Game time:", currentGameTime);
 
       await gameAPI.recordShot(game.id, {
         playerId: statsModal.player.id,
         shotType,
         made,
         gameTime: currentGameTime,
-        playerMinutes: playerMinutesPlayed
       });
 
+      console.log("Shot recorded successfully");
       notification.success({
         message: "Tiro Registrado",
-        description: `${
-          made ? "Anotado" : "Fallado"
-        } ${shotType === "2pt" ? "Tiro de 2" : "Tiro de 3"} por ${statsModal.player.nombre} ${
-          statsModal.player.apellido
-        }`,
+        description: `${made ? "Anotado" : "Fallado"} ${
+          shotType === "2pt"
+            ? "Tiro de 2 Puntos"
+            : shotType === "3pt"
+            ? "Tiro de 3 Puntos"
+            : shotType === "ft"
+            ? "Tiro Libre"
+            : "Tiro"
+        } por ${statsModal.player.nombre} ${statsModal.player.apellido}`,
       });
 
       closeStatsModal();
-      // Refresh game data to update stats
-      loadGameData();
+      // Only refresh game stats, don't reload everything to avoid restart
+      try {
+        const updatedGame = await gameAPI.getGame(game.id);
+        setGame(updatedGame.data);
+      } catch (error) {
+        console.error("Error refreshing game data:", error);
+      }
     } catch (error) {
+      console.error("Error recording shot:", error);
       notification.error({
         message: "Error",
         description: "Could not record shot",
@@ -451,7 +592,25 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Reset player minutes when game starts
+  const resetPlayerMinutes = () => {
+    const newPlayerMinutes: Record<number, number> = {};
+
+    // Initialize minutes for all players to 0
+    if (homeTeam && awayTeam) {
+      [...homeTeam.players, ...awayTeam.players].forEach((player) => {
+        newPlayerMinutes[player.id] = 0;
+      });
+    }
+
+    setPlayerMinutes(newPlayerMinutes);
+    console.log(
+      "Player minutes (milliseconds) reset for new game - all players initialized to 0ms"
+    );
+    console.log("Player minutes state:", newPlayerMinutes);
   };
 
   // Timer management functions (following documentation)
@@ -466,9 +625,17 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   };
 
   const startTimer = () => {
-    if (timerInterval) return; // Already running
+    if (timerInterval) {
+      console.log(
+        "Timer already running, skipping. Current interval ID:",
+        timerInterval
+      );
+      return; // Already running
+    }
 
+    console.log("Starting NEW timer and player minutes tracking");
     const interval = setInterval(async () => {
+      console.log("Timer tick - interval ID:", interval);
       setGameTime((prev) => {
         const newTime = prev - 1;
         if (newTime >= 0) {
@@ -476,21 +643,41 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           // Update minutes for players on court
           if (homeTeam && awayTeam) {
             const onCourtPlayers = [
-              ...homeTeam.players.filter(p => p.isOnCourt),
-              ...awayTeam.players.filter(p => p.isOnCourt)
+              ...homeTeam.players.filter((p) => p.isOnCourt),
+              ...awayTeam.players.filter((p) => p.isOnCourt),
             ];
-            
-            setPlayerMinutes(prev => {
+
+            setPlayerMinutes((prev) => {
               const updated = { ...prev };
-              onCourtPlayers.forEach(player => {
-                updated[player.id] = (updated[player.id] || 0) + 1;
+              onCourtPlayers.forEach((player) => {
+                const oldTime = updated[player.id] || 0;
+                const newTime = oldTime + 1000;
+                console.log(
+                  `Player ${player.nombre} ${player.apellido} (ID: ${player.id}): ${oldTime}ms → ${newTime}ms`
+                );
+                updated[player.id] = newTime; // Add 1000ms (1 second)
               });
+
+              // Show current time totals for all on-court players
+              console.log(
+                "Current on-court player times:",
+                onCourtPlayers
+                  .map(
+                    (p) =>
+                      `${p.nombre} ${p.apellido}: ${Math.round(
+                        (updated[p.id] || 0) / 1000
+                      )}s`
+                  )
+                  .join(", ")
+              );
+
               return updated;
             });
           }
           return newTime;
         }
         // Stop the timer at 0:00
+        console.log("Timer reached 0:00, stopping interval:", interval);
         clearInterval(interval);
         setTimerInterval(null);
         setIsClockRunning(false);
@@ -498,86 +685,59 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       });
     }, 1000);
 
+    console.log("Created new interval with ID:", interval);
     setTimerInterval(interval);
     setIsClockRunning(true);
   };
 
   const stopTimer = async () => {
+    console.log("Stopping timer. Current interval ID:", timerInterval);
     if (timerInterval) {
       clearInterval(timerInterval);
       setTimerInterval(null);
+      console.log("Timer interval cleared and set to null");
     }
     setIsClockRunning(false);
 
-    // Save full game state when timer stops
+    // Save tracked minutes to backend when timer stops
     if (!game || !homeTeam || !awayTeam) {
       message.error("Cannot save game state: missing game or team data");
       return;
     }
 
     try {
-      // Collect all player stats
-      const playerStats = [...homeTeam.players, ...awayTeam.players].map(player => ({
-        playerId: player.id,
-        puntos: player.stats?.puntos || 0,
-        rebotes: player.stats?.rebotes || 0,
-        asistencias: player.stats?.asistencias || 0,
-        robos: player.stats?.robos || 0,
-        tapones: player.stats?.tapones || 0,
-        tirosIntentados: player.stats?.tirosIntentados || 0,
-        tirosAnotados: player.stats?.tirosAnotados || 0,
-        tiros3Intentados: player.stats?.tiros3Intentados || 0,
-        tiros3Anotados: player.stats?.tiros3Anotados || 0,
-        minutos: player.stats?.minutos || 0,
-        plusMinus: player.stats?.plusMinus || 0,
-      }));
+      console.log("Saving player minutes to backend:", playerMinutes);
 
-      await gameAPI.saveGameState(game.id, {
-        homeScore: homeTeam.score,
-        awayScore: awayTeam.score,
-        currentQuarter: Math.ceil((QUARTER_LENGTH * 4 - gameTime) / QUARTER_LENGTH),
-        quarterTime: gameTime % QUARTER_LENGTH,
-        gameTime: gameTime,
-        playerStats
+      // Convert playerMinutes to the format expected by the bulk endpoint
+      // The endpoint expects {playerId: milliseconds} as strings for keys
+      const playerMinutesPayload: Record<string, number> = {};
+      const allPlayers = [...homeTeam.players, ...awayTeam.players];
+
+      allPlayers.forEach((player) => {
+        const millisecondsPlayed = playerMinutes[player.id] || 0;
+        playerMinutesPayload[player.id.toString()] = millisecondsPlayed;
+        console.log(
+          `Player ${player.nombre} ${player.apellido} (ID: ${player.id}): ${millisecondsPlayed}ms`
+        );
       });
 
-      message.success("Game state saved successfully");
-    } catch (error) {
-      console.error("Error saving game state:", error);
-      message.error("Failed to save game state");
-    }
+      // Update all player minutes in a single bulk request
+      await gameAPI.updatePlayerMinutes(game.id, playerMinutesPayload);
+      console.log("Bulk player minutes update completed successfully");
 
-    // Save full game state when timer stops
-    if (game) {
-      try {
-        // Collect all player stats
-        const playerStats = [...homeTeam.players, ...awayTeam.players].map(player => ({
-          playerId: player.id,
-          puntos: player.stats?.puntos || 0,
-          rebotes: player.stats?.rebotes || 0,
-          asistencias: player.stats?.asistencias || 0,
-          robos: player.stats?.robos || 0,
-          tapones: player.stats?.tapones || 0,
-          tirosIntentados: player.stats?.tirosIntentados || 0,
-          tirosAnotados: player.stats?.tirosAnotados || 0,
-          tiros3Intentados: player.stats?.tiros3Intentados || 0,
-          tiros3Anotados: player.stats?.tiros3Anotados || 0,
-          minutos: player.stats?.minutos || 0,
-          plusMinus: player.stats?.plusMinus || 0,
-        }));
+      message.success({
+        content: "Minutos de jugadores guardados exitosamente",
+        duration: 3,
+      });
+    } catch (error: any) {
+      console.error("Error saving player minutes:", error);
+      console.error("Error response:", error?.response?.data);
+      console.error("Error status:", error?.response?.status);
+      console.error("Error message:", error?.message);
 
-        await gameAPI.saveGameState(game.id, {
-          homeScore: homeTeam.score,
-          awayScore: awayTeam.score,
-          currentQuarter: 1, // Default to first quarter
-          quarterTime: gameTime % QUARTER_LENGTH,
-          gameTime: gameTime,
-          playerStats
-        });
-      } catch (error) {
-        console.error("Error saving game state:", error);
-        message.error("Failed to save game state");
-      }
+      const errorMessage =
+        error?.response?.data?.error || error?.message || "Unknown error";
+      message.error(`Failed to save player minutes: ${errorMessage}`);
     }
   };
 
@@ -601,18 +761,25 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   useEffect(() => {
     loadGameData();
 
+    // Cleanup function to clear any running timers when component unmounts or ID changes
     return () => {
+      console.log("Component cleanup: clearing timer interval");
       if (timerInterval) {
         clearInterval(timerInterval);
+        setTimerInterval(null);
+        setIsClockRunning(false);
       }
     };
-  }, [id]);
+  }, [id]); // Simple dependency on id only
 
-  const loadGameData = async () => {
+  const loadGameData = useCallback(async () => {
     console.log("Loading game data for ID:", id);
     try {
       // Load game data
-      console.log("Fetching game from:", `http://localhost:4000/api/games/${id}`);
+      console.log(
+        "Fetching game from:",
+        `http://localhost:4000/api/games/${id}`
+      );
       const gameResponse = await gameAPI.getGame(id!);
       console.log("Game response:", gameResponse);
       const game = gameResponse.data;
@@ -621,98 +788,153 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
       // Load both teams and their players
       console.log("Fetching teams:", game.teamHomeId, game.teamAwayId);
-      const [homeTeamResponse, awayTeamResponse, activePlayers] = await Promise.all([
-        teamAPI.getTeam(game.teamHomeId),
-        teamAPI.getTeam(game.teamAwayId),
-        axios.get(`http://localhost:4000/api/games/${id}/active-players`)
-      ]);
-
-      console.log("Active players response:", activePlayers.data);
-      
-      // Handle the active players data structure properly
-      let homeActiveIds: number[] = [];
-      let awayActiveIds: number[] = [];
 
       try {
-        if (activePlayers.data) {
-          const homePlayers = activePlayers.data.homeTeam?.players || [];
-          const awayPlayers = activePlayers.data.awayTeam?.players || [];
+        const [homeTeamResponse, awayTeamResponse] = await Promise.all([
+          teamAPI.getTeam(game.teamHomeId),
+          teamAPI.getTeam(game.teamAwayId),
+        ]);
 
-          homeActiveIds = homePlayers.map((p: Player) => p.id);
-          awayActiveIds = awayPlayers.map((p: Player) => p.id);
+        console.log("Home team response:", homeTeamResponse.data);
+        console.log("Away team response:", awayTeamResponse.data);
 
-          // Set selected players directly from the response
-          setSelectedPlayers({
-            home: homeActiveIds,
-            away: awayActiveIds
-          });
+        // Handle active players differently based on game state
+        let homeActiveIds: number[] = [];
+        let awayActiveIds: number[] = [];
 
-          console.log("Home active players:", homeActiveIds);
-          console.log("Away active players:", awayActiveIds);
+        if (game.estado !== "scheduled") {
+          // Only fetch active players for games that have started
+          try {
+            const activePlayers = await gameAPI.getActivePlayers(id!);
+            console.log("Active players response:", activePlayers.data);
+
+            if (activePlayers.data) {
+              const homePlayers = activePlayers.data.homeTeam?.players || [];
+              const awayPlayers = activePlayers.data.awayTeam?.players || [];
+
+              homeActiveIds = homePlayers.map((p: Player) => p.id);
+              awayActiveIds = awayPlayers.map((p: Player) => p.id);
+
+              console.log("Home active players:", homeActiveIds);
+              console.log("Away active players:", awayActiveIds);
+
+              // If no active players are set but game is in progress,
+              // this likely means the game was started without proper lineup setup
+              if (homeActiveIds.length === 0 && awayActiveIds.length === 0) {
+                console.warn(
+                  "Game is in progress but no active players found. This game may need active players to be set."
+                );
+                // You could either:
+                // 1. Show a warning to set active players
+                // 2. Default to showing first 5 players of each team
+                // For now, we'll leave arrays empty but log the issue
+              }
+            }
+          } catch (err) {
+            console.error("Error processing active players:", err);
+          }
         }
-      } catch (err) {
-        console.error("Error processing active players:", err);
-        console.log("Active players data structure:", activePlayers.data);
+
+        // Set selected players
+        setSelectedPlayers({
+          home: homeActiveIds,
+          away: awayActiveIds,
+        });
+
+        const newHomeTeam = {
+          ...homeTeamResponse.data,
+          score: game.score?.home || 0,
+          players: (homeTeamResponse.data.players || []).map((p: Player) => {
+            // Preserve existing player stats if available (from React state)
+            const existingPlayer = homeTeam?.players?.find((existing: Player) => existing.id === p.id);
+            return {
+              ...p,
+              isOnCourt: homeActiveIds.includes(p.id),
+              stats: existingPlayer?.stats || p.stats, // Keep existing stats if available
+            };
+          }),
+        };
+        const newAwayTeam = {
+          ...awayTeamResponse.data,
+          score: game.score?.away || 0,
+          players: (awayTeamResponse.data.players || []).map((p: Player) => {
+            // Preserve existing player stats if available (from React state)
+            const existingPlayer = awayTeam?.players?.find((existing: Player) => existing.id === p.id);
+            return {
+              ...p,
+              isOnCourt: awayActiveIds.includes(p.id),
+              stats: existingPlayer?.stats || p.stats, // Keep existing stats if available
+            };
+          }),
+        };
+
+        console.log("Final home team with players:", newHomeTeam);
+        console.log("Final away team with players:", newAwayTeam);
+
+        setHomeTeam(newHomeTeam);
+        setAwayTeam(newAwayTeam);
+
+        // Initialize player minutes for all players when game data loads
+        const allPlayers = [...newHomeTeam.players, ...newAwayTeam.players];
+        const initialPlayerMinutes: Record<number, number> = {};
+        allPlayers.forEach((player) => {
+          initialPlayerMinutes[player.id] = 0; // Start at 0 milliseconds
+        });
+        setPlayerMinutes(initialPlayerMinutes);
+
+        console.log(
+          "Game data loaded successfully with player minutes initialized"
+        );
+      } catch (teamError) {
+        console.error("Error loading teams/players:", teamError);
+        message.error(
+          "Error loading team data. Please check if teams have players assigned."
+        );
       }
-
-      const homeTeam = {
-        ...homeTeamResponse.data,
-        score: game.score?.home || 0,
-        players: homeTeamResponse.data.players.map((p: Player) => ({
-          ...p,
-          isOnCourt: homeActiveIds.includes(p.id),
-        })),
-      };
-      const awayTeam = {
-        ...awayTeamResponse.data,
-        score: game.score?.away || 0,
-        players: awayTeamResponse.data.players.map((p: Player) => ({
-          ...p,
-          isOnCourt: awayActiveIds.includes(p.id),
-        })),
-      };
-
-      // Set selected players based on active players
-      const homeActivePlayers = homeTeam.players.filter((p: Player) => p.isOnCourt).map((p: Player) => p.id);
-      const awayActivePlayers = awayTeam.players.filter((p: Player) => p.isOnCourt).map((p: Player) => p.id);
-      setSelectedPlayers({
-        home: homeActivePlayers,
-        away: awayActivePlayers
-      });
-
-      setHomeTeam(homeTeam);
-      setAwayTeam(awayTeam);
-      console.log("Game data loaded successfully");
     } catch (err) {
       console.error("Error loading game data:", err);
+      message.error("Error loading game data");
     }
-  };
-
-
+  }, [id]); // Add dependency on id
 
   const startGame = async () => {
     if (!game) return;
 
     try {
       // Check if both teams have active players
-      if (selectedPlayers.home.length !== 5 || selectedPlayers.away.length !== 5) {
+      if (
+        selectedPlayers.home.length !== 5 ||
+        selectedPlayers.away.length !== 5
+      ) {
         notification.error({
           message: "Error",
-          description: "Ambos equipos deben tener 5 jugadores seleccionados"
+          description: "Ambos equipos deben tener 5 jugadores seleccionados",
         });
         return;
       }
 
-      // Update the game status to in_progress
-      const gameUpdateData = {
-        estado: "in_progress",
-        eventId: game.eventId,
-        teamHomeId: game.teamHomeId,
-        teamAwayId: game.teamAwayId,
-        fecha: new Date(game.fecha).toISOString(),
-      };
+      console.log("Starting game with selected players:", selectedPlayers);
 
-      await gameAPI.updateGame(id!, gameUpdateData);
+      // Step 1: Start the game with all active players (home + away)
+      const allActivePlayerIds = [
+        ...selectedPlayers.home,
+        ...selectedPlayers.away,
+      ];
+      await gameAPI.startGame(id!, {
+        activePlayerIds: allActivePlayerIds,
+        gameSettings: {
+          quarterLength: 720, // 12 minutes
+          totalQuarters: 4, // 4 quarters
+          overtimeLength: 300, // 5 minutes
+        },
+      });
+
+      console.log("Game started successfully");
+
+      // Step 2: Set all active players (replaces both home and away calls)
+      await gameAPI.updateActivePlayers(id!, allActivePlayerIds);
+
+      console.log("All active players set successfully");
 
       // Update local state
       setGame((prev) => (prev ? { ...prev, estado: "in_progress" } : null));
@@ -742,15 +964,20 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
       setIsLineupModalVisible(false);
 
+      // Reset player minutes for new game
+      resetPlayerMinutes();
+
       // Start the game timer automatically
       startTimer();
 
       // Notify success
       notification.success({
         message: "Juego iniciado",
-        description: "El juego ha comenzado correctamente",
+        description:
+          "El juego ha comenzado correctamente con los quintetos seleccionados",
       });
     } catch (err: any) {
+      console.error("Error starting game:", err);
       notification.error({
         message: "Error al Iniciar el Juego",
         description: err.response?.data?.error || "No se pudo iniciar el juego",
@@ -758,7 +985,76 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     }
   };
 
+  // Set active players for an already started game
+  const setActivePlayers = async () => {
+    if (!game) return;
 
+    try {
+      // Check if both teams have 5 players selected
+      if (
+        selectedPlayers.home.length !== 5 ||
+        selectedPlayers.away.length !== 5
+      ) {
+        notification.error({
+          message: "Error",
+          description: "Ambos equipos deben tener 5 jugadores seleccionados",
+        });
+        return;
+      }
+
+      console.log(
+        "Setting active players for in-progress game:",
+        selectedPlayers
+      );
+
+      // Set all active players (replaces both home and away calls)
+      const allActivePlayerIds = [
+        ...selectedPlayers.home,
+        ...selectedPlayers.away,
+      ];
+      await gameAPI.updateActivePlayers(id!, allActivePlayerIds);
+      console.log("All active players updated successfully");
+
+      // Update local state to show players on court
+      setHomeTeam((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          players: prev.players.map((p) => ({
+            ...p,
+            isOnCourt: selectedPlayers.home.includes(p.id),
+          })),
+        };
+      });
+
+      setAwayTeam((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          players: prev.players.map((p) => ({
+            ...p,
+            isOnCourt: selectedPlayers.away.includes(p.id),
+          })),
+        };
+      });
+
+      setIsLineupModalVisible(false);
+
+      notification.success({
+        message: "Quintetos Configurados",
+        description:
+          "Los jugadores activos han sido configurados correctamente",
+      });
+    } catch (err: any) {
+      console.error("Error setting active players:", err);
+      notification.error({
+        message: "Error al Configurar Quintetos",
+        description:
+          err.response?.data?.error ||
+          "No se pudieron configurar los quintetos",
+      });
+    }
+  };
 
   if (!game || !homeTeam || !awayTeam) {
     return <div>Cargando...</div>;
@@ -766,6 +1062,36 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
   return (
     <div style={{ padding: 0, minHeight: "100vh", background: "#f5f5f5" }}>
+      {/* Header with navigation */}
+      <div
+        style={{
+          padding: "16px",
+          background: "#fff",
+          borderBottom: "1px solid #f0f0f0",
+        }}
+      >
+        <Row justify="space-between" align="middle">
+          <Col>
+            <Title level={3} style={{ margin: 0 }}>
+              {game.teamHome.nombre} vs {game.teamAway.nombre}
+            </Title>
+            <Text type="secondary">{game.event.nombre}</Text>
+          </Col>
+          <Col>
+            <Space>
+              <Link to={`/games/${game.id}/stats`}>
+                <Button icon={<BarChartOutlined />} type="default">
+                  Ver Estadísticas NBA
+                </Button>
+              </Link>
+              <Link to="/games">
+                <Button type="primary">Volver a Juegos</Button>
+              </Link>
+            </Space>
+          </Col>
+        </Row>
+      </div>
+
       {/* Score and game info */}
       <div
         style={{
@@ -778,8 +1104,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       >
         <Row align="middle" justify="space-between" gutter={8}>
           <Col span={8}>
-            <Title level={4} style={{ margin: 0 }}>{game.teamHome.nombre}</Title>
-            <Statistic value={game.homeScore} style={{ marginTop: '4px' }} />
+            <Title level={4} style={{ margin: 0 }}>
+              {game.teamHome.nombre}
+            </Title>
+            <Statistic value={game.homeScore} style={{ marginTop: "4px" }} />
             {game.estado === "in_progress" && (
               <Space style={{ marginTop: 8 }}>
                 <Button
@@ -818,48 +1146,65 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             )}
           </Col>
           <Col span={8} style={{ textAlign: "center" }}>
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Space direction="vertical" size="small" style={{ width: "100%" }}>
               <Text>
                 {game.estado === "scheduled" && "Por comenzar"}
                 {game.estado === "in_progress" && "En progreso"}
                 {game.estado === "finished" && "Finalizado"}
               </Text>
               {game.estado === "in_progress" && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                    alignItems: "center",
+                  }}
+                >
                   <Title level={4} style={{ margin: 0 }}>
-                    {game.isOvertime 
-                      ? `OT ${Math.floor(game.currentQuarter - game.totalQuarters + 1)}` 
+                    {game.isOvertime
+                      ? `OT ${Math.floor(
+                          game.currentQuarter - game.totalQuarters + 1
+                        )}`
                       : `Q${game.currentQuarter}`}
                   </Title>
-                  <Tag color="blue" style={{ marginTop: '4px' }}>
+                  <Tag color="blue" style={{ marginTop: "4px" }}>
                     {game.event.nombre}
                   </Tag>
                 </div>
               )}
               {game.estado === "scheduled" && (
-                <Space direction="vertical" style={{ width: '100%', gap: '8px' }}>
+                <Space
+                  direction="vertical"
+                  style={{ width: "100%", gap: "8px" }}
+                >
                   <Button
                     type="primary"
                     icon={<PlayCircleOutlined />}
-                    style={{ width: '100%' }}
+                    style={{ width: "100%" }}
                     onClick={() => setIsLineupModalVisible(true)}
                   >
                     Configurar Quintetos e Iniciar Juego
                   </Button>
-                  <div style={{ textAlign: 'center', marginTop: '4px' }}>
+                  <div style={{ textAlign: "center", marginTop: "4px" }}>
                     <Text type="secondary">
-                      Local: {selectedPlayers.home.length}/5 jugadores seleccionados
+                      Local: {selectedPlayers.home.length}/5 jugadores
+                      seleccionados
                     </Text>
                     <br />
                     <Text type="secondary">
-                      Visitante: {selectedPlayers.away.length}/5 jugadores seleccionados
+                      Visitante: {selectedPlayers.away.length}/5 jugadores
+                      seleccionados
                     </Text>
                   </div>
                 </Space>
               )}
               {game.estado === "in_progress" && (
-                <div style={{ textAlign: 'center' }}>
-                  <Title level={1} style={{ margin: '0 0 16px 0', fontSize: '48px' }}>
+                <div style={{ textAlign: "center" }}>
+                  <Title
+                    level={1}
+                    style={{ margin: "0 0 16px 0", fontSize: "48px" }}
+                  >
                     {formatTime(gameTime)}
                   </Title>
                   <Button
@@ -877,13 +1222,42 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   >
                     {isClockRunning ? "Pausar" : "Reanudar"}
                   </Button>
+
+                  {/* Show warning if no active players are set */}
+                  {selectedPlayers.home.length === 0 &&
+                    selectedPlayers.away.length === 0 && (
+                      <div
+                        style={{
+                          marginTop: 16,
+                          padding: 12,
+                          backgroundColor: "#fff2e8",
+                          borderRadius: 6,
+                          border: "1px solid #fa8c16",
+                        }}
+                      >
+                        <Text type="warning" style={{ fontSize: 12 }}>
+                          ⚠️ No hay jugadores activos.
+                        </Text>
+                        <br />
+                        <Button
+                          size="small"
+                          type="primary"
+                          style={{ marginTop: 8 }}
+                          onClick={() => setIsLineupModalVisible(true)}
+                        >
+                          Configurar Quintetos
+                        </Button>
+                      </div>
+                    )}
                 </div>
               )}
             </Space>
           </Col>
           <Col span={8} style={{ textAlign: "right" }}>
-            <Title level={4} style={{ margin: 0 }}>{game.teamAway.nombre}</Title>
-            <Statistic value={game.awayScore} style={{ marginTop: '4px' }} />
+            <Title level={4} style={{ margin: 0 }}>
+              {game.teamAway.nombre}
+            </Title>
+            <Statistic value={game.awayScore} style={{ marginTop: "4px" }} />
             {game.estado === "in_progress" && (
               <Space style={{ marginTop: 8 }}>
                 <Button
@@ -956,12 +1330,16 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   }}
                   onClick={(e) => {
                     if (e.shiftKey || substitutionState.isSelecting) {
-                      startSubstitution(p, 'home');
+                      startSubstitution(p, "home");
                     } else {
                       openStatsModal(p);
                     }
                   }}
-                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats, Shift+Click to substitute`}
+                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | ${
+                    isClockRunning
+                      ? "Click to record stats, Shift+Click to substitute"
+                      : "Start clock to record stats, Shift+Click to substitute"
+                  }`}
                 >
                   <b style={{ fontSize: 18 }}>{p.numero}</b>
                   <span style={{ fontSize: 10, fontWeight: "bold" }}>
@@ -980,11 +1358,12 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                 {substitutionState.isSelecting && (
                   <div style={{ marginTop: 8 }}>
                     <Tag color="processing">
-                      Selecting substitute for {substitutionState.playerOut?.nombre}
+                      Selecting substitute for{" "}
+                      {substitutionState.playerOut?.nombre}
                     </Tag>
-                    <Button 
-                      size="small" 
-                      danger 
+                    <Button
+                      size="small"
+                      danger
                       onClick={cancelSubstitution}
                       style={{ marginLeft: 8 }}
                     >
@@ -1013,12 +1392,16 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   }}
                   onClick={(e) => {
                     if (e.shiftKey || substitutionState.isSelecting) {
-                      startSubstitution(p, 'away');
+                      startSubstitution(p, "away");
                     } else {
                       openStatsModal(p);
                     }
                   }}
-                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats, Shift+Click to substitute`}
+                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | ${
+                    isClockRunning
+                      ? "Click to record stats, Shift+Click to substitute"
+                      : "Start clock to record stats, Shift+Click to substitute"
+                  }`}
                 >
                   <b style={{ fontSize: 18 }}>{p.numero}</b>
                   <span style={{ fontSize: 10, fontWeight: "bold" }}>
@@ -1039,24 +1422,32 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                     style={{
                       ...playerCircle,
                       background: "#e6f7ff",
-                      border: substitutionState.isSelecting && substitutionState.selectedTeam === 'home' 
-                        ? "3px solid #52c41a" 
-                        : "1px dashed #1890ff",
-                      cursor: substitutionState.isSelecting && substitutionState.selectedTeam === 'home' 
-                        ? "pointer" 
-                        : "default"
+                      border:
+                        substitutionState.isSelecting &&
+                        substitutionState.selectedTeam === "home"
+                          ? "3px solid #52c41a"
+                          : "1px dashed #1890ff",
+                      cursor:
+                        substitutionState.isSelecting &&
+                        substitutionState.selectedTeam === "home"
+                          ? "pointer"
+                          : "default",
                     }}
                     onClick={() => {
-                      if (substitutionState.isSelecting && substitutionState.selectedTeam === 'home') {
+                      if (
+                        substitutionState.isSelecting &&
+                        substitutionState.selectedTeam === "home"
+                      ) {
                         completeSubstitution(p);
                       } else if (!substitutionState.isSelecting) {
                         openStatsModal(p);
                       }
                     }}
                     title={
-                      substitutionState.isSelecting && substitutionState.selectedTeam === 'home'
+                      substitutionState.isSelecting &&
+                      substitutionState.selectedTeam === "home"
                         ? `Click to substitute in ${p.nombre}`
-                        : `${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats`
+                        : `${p.nombre} ${p.apellido} - ${p.posicion} | Bench player - No stats when not on court`
                     }
                   >
                     <b>{p.numero}</b>
@@ -1076,24 +1467,32 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                     style={{
                       ...playerCircle,
                       background: "#e6f7ff",
-                      border: substitutionState.isSelecting && substitutionState.selectedTeam === 'away' 
-                        ? "3px solid #52c41a" 
-                        : "1px dashed #1890ff",
-                      cursor: substitutionState.isSelecting && substitutionState.selectedTeam === 'away' 
-                        ? "pointer" 
-                        : "default"
+                      border:
+                        substitutionState.isSelecting &&
+                        substitutionState.selectedTeam === "away"
+                          ? "3px solid #52c41a"
+                          : "1px dashed #1890ff",
+                      cursor:
+                        substitutionState.isSelecting &&
+                        substitutionState.selectedTeam === "away"
+                          ? "pointer"
+                          : "default",
                     }}
                     onClick={() => {
-                      if (substitutionState.isSelecting && substitutionState.selectedTeam === 'away') {
+                      if (
+                        substitutionState.isSelecting &&
+                        substitutionState.selectedTeam === "away"
+                      ) {
                         completeSubstitution(p);
                       } else if (!substitutionState.isSelecting) {
                         openStatsModal(p);
                       }
                     }}
                     title={
-                      substitutionState.isSelecting && substitutionState.selectedTeam === 'away'
+                      substitutionState.isSelecting &&
+                      substitutionState.selectedTeam === "away"
                         ? `Click to substitute in ${p.nombre}`
-                        : `${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats`
+                        : `${p.nombre} ${p.apellido} - ${p.posicion} | Bench player - No stats when not on court`
                     }
                   >
                     <b>{p.numero}</b>
@@ -1116,8 +1515,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           setIsLineupModalVisible(false);
         }}
         footer={[
-          <Button 
-            key="cancel" 
+          <Button
+            key="cancel"
             onClick={() => {
               setIsLineupModalVisible(false);
             }}
@@ -1127,51 +1526,230 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           <Button
             key="start"
             type="primary"
+            disabled={
+              selectedPlayers.home.length !== 5 ||
+              selectedPlayers.away.length !== 5
+            }
             onClick={startGame}
           >
             Iniciar Juego
-          </Button>
+          </Button>,
         ]}
         width={800}
       >
         <div>
-          <Title level={4}>Quintetos Iniciales</Title>
-          <Row gutter={24}>
-            <Col span={12}>
-              <Title level={5}>{homeTeam.nombre}</Title>
-              <List
-                dataSource={homeTeam.players.filter(p => selectedPlayers.home.includes(p.id))}
-                renderItem={player => (
-                  <List.Item>
-                    <Space>
-                      <span style={{ fontWeight: 'bold' }}>{player.numero}</span>
-                      {player.nombre} {player.apellido}
-                      <Tag color="blue">{player.posicion}</Tag>
-                    </Space>
-                  </List.Item>
-                )}
-              />
-            </Col>
-            <Col span={12}>
-              <Title level={5}>{awayTeam.nombre}</Title>
-              <List
-                dataSource={awayTeam.players.filter(p => selectedPlayers.away.includes(p.id))}
-                renderItem={player => (
-                  <List.Item>
-                    <Space>
-                      <span style={{ fontWeight: 'bold' }}>{player.numero}</span>
-                      {player.nombre} {player.apellido}
-                      <Tag color="red">{player.posicion}</Tag>
-                    </Space>
-                  </List.Item>
-                )}
-              />
-            </Col>
-          </Row>
+          {!homeTeam || !awayTeam ? (
+            <div style={{ textAlign: "center", padding: "40px 0" }}>
+              <Title level={4}>Cargando datos de los equipos...</Title>
+            </div>
+          ) : selectedPlayers.home.length === 5 &&
+            selectedPlayers.away.length === 5 ? (
+            // Show confirmation view when lineups are complete
+            <>
+              <Title level={4}>Quintetos Iniciales</Title>
+              <Row gutter={24}>
+                <Col span={12}>
+                  <Title level={5}>{homeTeam.nombre}</Title>
+                  <List
+                    dataSource={homeTeam.players.filter((p) =>
+                      selectedPlayers.home.includes(p.id)
+                    )}
+                    renderItem={(player) => (
+                      <List.Item>
+                        <Space>
+                          <span style={{ fontWeight: "bold" }}>
+                            {player.numero}
+                          </span>
+                          {player.nombre} {player.apellido}
+                          <Tag color="blue">{player.posicion}</Tag>
+                        </Space>
+                      </List.Item>
+                    )}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Title level={5}>{awayTeam.nombre}</Title>
+                  <List
+                    dataSource={awayTeam.players.filter((p) =>
+                      selectedPlayers.away.includes(p.id)
+                    )}
+                    renderItem={(player) => (
+                      <List.Item>
+                        <Space>
+                          <span style={{ fontWeight: "bold" }}>
+                            {player.numero}
+                          </span>
+                          {player.nombre} {player.apellido}
+                          <Tag color="red">{player.posicion}</Tag>
+                        </Space>
+                      </List.Item>
+                    )}
+                  />
+                </Col>
+              </Row>
+            </>
+          ) : (
+            // Show player selection view when lineups are incomplete
+            <>
+              <Title level={4}>Seleccionar Quintetos Iniciales</Title>
+              <Text
+                type="secondary"
+                style={{ display: "block", marginBottom: 16 }}
+              >
+                Selecciona 5 jugadores para cada equipo. Haz clic en los
+                jugadores para agregarlos o quitarlos del quinteto inicial.
+              </Text>
+
+              <div
+                style={{
+                  marginBottom: 16,
+                  padding: 8,
+                  backgroundColor: "#f0f0f0",
+                  borderRadius: 4,
+                }}
+              >
+                <Text type="secondary">
+                  Debug - Home players: {homeTeam.players?.length || 0}, Away
+                  players: {awayTeam.players?.length || 0}
+                </Text>
+              </div>
+
+              <Row gutter={24}>
+                <Col span={12}>
+                  <div style={{ marginBottom: 16 }}>
+                    <Title level={5}>{homeTeam.nombre}</Title>
+                    <Text
+                      type={
+                        selectedPlayers.home.length === 5
+                          ? "success"
+                          : "warning"
+                      }
+                    >
+                      Seleccionados: {selectedPlayers.home.length}/5
+                    </Text>
+                  </div>
+                  <List
+                    dataSource={homeTeam.players || []}
+                    renderItem={(player) => (
+                      <List.Item
+                        style={{
+                          cursor: "pointer",
+                          backgroundColor: selectedPlayers.home.includes(
+                            player.id
+                          )
+                            ? "#e6f7ff"
+                            : "transparent",
+                          border: selectedPlayers.home.includes(player.id)
+                            ? "1px solid #1890ff"
+                            : "1px solid transparent",
+                          borderRadius: 4,
+                          padding: "8px 12px",
+                          margin: "4px 0",
+                        }}
+                        onClick={() => {
+                          console.log("Clicked player:", player);
+                          const isSelected = selectedPlayers.home.includes(
+                            player.id
+                          );
+                          if (isSelected) {
+                            // Remove player
+                            setSelectedPlayers((prev) => ({
+                              ...prev,
+                              home: prev.home.filter((id) => id !== player.id),
+                            }));
+                          } else if (selectedPlayers.home.length < 5) {
+                            // Add player (only if less than 5 selected)
+                            setSelectedPlayers((prev) => ({
+                              ...prev,
+                              home: [...prev.home, player.id],
+                            }));
+                          }
+                        }}
+                      >
+                        <Space>
+                          <span style={{ fontWeight: "bold" }}>
+                            {player.numero}
+                          </span>
+                          {player.nombre} {player.apellido}
+                          <Tag color="blue">{player.posicion}</Tag>
+                          {selectedPlayers.home.includes(player.id) && (
+                            <Tag color="success">Seleccionado</Tag>
+                          )}
+                        </Space>
+                      </List.Item>
+                    )}
+                  />
+                </Col>
+                <Col span={12}>
+                  <div style={{ marginBottom: 16 }}>
+                    <Title level={5}>{awayTeam.nombre}</Title>
+                    <Text
+                      type={
+                        selectedPlayers.away.length === 5
+                          ? "success"
+                          : "warning"
+                      }
+                    >
+                      Seleccionados: {selectedPlayers.away.length}/5
+                    </Text>
+                  </div>
+                  <List
+                    dataSource={awayTeam.players || []}
+                    renderItem={(player) => (
+                      <List.Item
+                        style={{
+                          cursor: "pointer",
+                          backgroundColor: selectedPlayers.away.includes(
+                            player.id
+                          )
+                            ? "#fff2e8"
+                            : "transparent",
+                          border: selectedPlayers.away.includes(player.id)
+                            ? "1px solid #fa8c16"
+                            : "1px solid transparent",
+                          borderRadius: 4,
+                          padding: "8px 12px",
+                          margin: "4px 0",
+                        }}
+                        onClick={() => {
+                          console.log("Clicked player:", player);
+                          const isSelected = selectedPlayers.away.includes(
+                            player.id
+                          );
+                          if (isSelected) {
+                            // Remove player
+                            setSelectedPlayers((prev) => ({
+                              ...prev,
+                              away: prev.away.filter((id) => id !== player.id),
+                            }));
+                          } else if (selectedPlayers.away.length < 5) {
+                            // Add player (only if less than 5 selected)
+                            setSelectedPlayers((prev) => ({
+                              ...prev,
+                              away: [...prev.away, player.id],
+                            }));
+                          }
+                        }}
+                      >
+                        <Space>
+                          <span style={{ fontWeight: "bold" }}>
+                            {player.numero}
+                          </span>
+                          {player.nombre} {player.apellido}
+                          <Tag color="red">{player.posicion}</Tag>
+                          {selectedPlayers.away.includes(player.id) && (
+                            <Tag color="success">Seleccionado</Tag>
+                          )}
+                        </Space>
+                      </List.Item>
+                    )}
+                  />
+                </Col>
+              </Row>
+            </>
+          )}
         </div>
       </Modal>
-
-
 
       {/* Modal for tracking stats */}
       <Modal
@@ -1187,7 +1765,12 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       >
         <Tabs
           activeKey={statsModal.activeTab}
-          onChange={(key: string) => setStatsModal(prev => ({ ...prev, activeTab: key as 'shots' | 'other' }))}
+          onChange={(key: string) =>
+            setStatsModal((prev) => ({
+              ...prev,
+              activeTab: key as "shots" | "other",
+            }))
+          }
         >
           <Tabs.TabPane tab="Tiros" key="shots">
             <div style={{ textAlign: "center", padding: "20px 0" }}>
@@ -1198,10 +1781,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   <Button
                     type="primary"
                     size="large"
-                    style={{ 
+                    style={{
                       width: "120px",
                       backgroundColor: "#52c41a",
-                      borderColor: "#52c41a"
+                      borderColor: "#52c41a",
                     }}
                     onClick={() => recordShot("2pt", true)}
                   >
@@ -1226,10 +1809,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   <Button
                     type="primary"
                     size="large"
-                    style={{ 
+                    style={{
                       width: "120px",
                       backgroundColor: "#52c41a",
-                      borderColor: "#52c41a"
+                      borderColor: "#52c41a",
                     }}
                     onClick={() => recordShot("3pt", true)}
                   >
@@ -1254,10 +1837,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   <Button
                     type="primary"
                     size="large"
-                    style={{ 
+                    style={{
                       width: "120px",
                       backgroundColor: "#52c41a",
-                      borderColor: "#52c41a"
+                      borderColor: "#52c41a",
                     }}
                     onClick={() => recordShot("ft", true)}
                   >
@@ -1279,7 +1862,11 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
           <Tabs.TabPane tab="Otras Estadísticas" key="other">
             <div style={{ textAlign: "center", padding: "20px 0" }}>
-              <Space direction="vertical" size="large" style={{ width: '100%' }}>
+              <Space
+                direction="vertical"
+                size="large"
+                style={{ width: "100%" }}
+              >
                 <div>
                   <Title level={5}>Rebotes y Asistencias</Title>
                   <Space>
@@ -1287,7 +1874,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                       type="primary"
                       size="large"
                       style={{ width: "120px" }}
-                      onClick={() => recordStat('rebound')}
+                      onClick={() => recordStat("rebound")}
                     >
                       Rebote
                     </Button>
@@ -1295,7 +1882,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                       type="primary"
                       size="large"
                       style={{ width: "120px" }}
-                      onClick={() => recordStat('assist')}
+                      onClick={() => recordStat("assist")}
                     >
                       Asistencia
                     </Button>
@@ -1309,7 +1896,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                       type="primary"
                       size="large"
                       style={{ width: "120px" }}
-                      onClick={() => recordStat('steal')}
+                      onClick={() => recordStat("steal")}
                     >
                       Robo
                     </Button>
@@ -1317,7 +1904,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                       type="primary"
                       size="large"
                       style={{ width: "120px" }}
-                      onClick={() => recordStat('block')}
+                      onClick={() => recordStat("block")}
                     >
                       Tapón
                     </Button>
@@ -1331,7 +1918,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                     danger
                     size="large"
                     style={{ width: "120px" }}
-                    onClick={() => recordStat('turnover')}
+                    onClick={() => recordStat("turnover")}
                   >
                     Pérdida
                   </Button>
@@ -1342,28 +1929,52 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                     <Title level={5}>Estadísticas Actuales</Title>
                     <Row gutter={[16, 16]}>
                       <Col span={6}>
-                        <Statistic title="Puntos" value={statsModal.player.stats.puntos} />
+                        <Statistic
+                          title="Puntos"
+                          value={statsModal.player.stats.puntos}
+                        />
                       </Col>
                       <Col span={6}>
-                        <Statistic title="Rebotes" value={statsModal.player.stats.rebotes} />
+                        <Statistic
+                          title="Rebotes"
+                          value={statsModal.player.stats.rebotes}
+                        />
                       </Col>
                       <Col span={6}>
-                        <Statistic title="Asistencias" value={statsModal.player.stats.asistencias} />
+                        <Statistic
+                          title="Asistencias"
+                          value={statsModal.player.stats.asistencias}
+                        />
                       </Col>
                       <Col span={6}>
-                        <Statistic title="Minutos" value={Math.floor(statsModal.player.stats.minutos / 60)} />
+                        <Statistic
+                          title="Minutos"
+                          value={Math.floor(
+                            statsModal.player.stats.minutos / 60
+                          )}
+                        />
                       </Col>
                       <Col span={6}>
-                        <Statistic title="Robos" value={statsModal.player.stats.robos} />
+                        <Statistic
+                          title="Robos"
+                          value={statsModal.player.stats.robos}
+                        />
                       </Col>
                       <Col span={6}>
-                        <Statistic title="Tapones" value={statsModal.player.stats.tapones} />
+                        <Statistic
+                          title="Tapones"
+                          value={statsModal.player.stats.tapones}
+                        />
                       </Col>
                       <Col span={12}>
                         <Statistic
                           title="Tiros de Campo"
                           value={`${statsModal.player.stats.tirosAnotados}/${statsModal.player.stats.tirosIntentados}`}
-                          suffix={`(${Math.round((statsModal.player.stats.tirosAnotados / statsModal.player.stats.tirosIntentados || 0) * 100)}%)`}
+                          suffix={`(${Math.round(
+                            (statsModal.player.stats.tirosAnotados /
+                              statsModal.player.stats.tirosIntentados || 0) *
+                              100
+                          )}%)`}
                         />
                       </Col>
                     </Row>

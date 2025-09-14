@@ -10,6 +10,8 @@ import {
   Form,
   Input,
   App,
+  Table,
+  Popconfirm,
 } from "antd";
 import {
   PlusOutlined,
@@ -149,6 +151,84 @@ const TeamsView: React.FC = () => {
     setModalVisible(true);
   };
 
+  // Table columns definition
+  const getTableColumns = () => [
+    {
+      title: "ID",
+      dataIndex: "id",
+      key: "id",
+      width: 80,
+    },
+    {
+      title: "Nombre",
+      dataIndex: "nombre",
+      key: "nombre",
+      render: (nombre: string, record: Team) => (
+        <Space>
+          <Avatar
+            size="small"
+            src={record.logo}
+            style={{ backgroundColor: "#1890ff" }}
+          >
+            {nombre.charAt(0)}
+          </Avatar>
+          <strong>{nombre}</strong>
+        </Space>
+      ),
+      width: 200,
+    },
+    {
+      title: "Ciudad",
+      dataIndex: "ciudad",
+      key: "ciudad",
+      render: (ciudad: string) => ciudad || "N/A",
+      width: 150,
+    },
+    {
+      title: "Categoría",
+      dataIndex: "categoria",
+      key: "categoria",
+      render: (categoria: string) => categoria || "N/A",
+      width: 150,
+    },
+    {
+      title: "Jugadores",
+      key: "players",
+      render: (record: Team) => (
+        <span>{record.players?.length || 0} jugadores</span>
+      ),
+      width: 120,
+    },
+    {
+      title: "Acciones",
+      key: "actions",
+      render: (record: Team) => (
+        <Space>
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => showEditModal(record)}
+          >
+            Editar
+          </Button>
+          <Popconfirm
+            title="¿Estás seguro de eliminar este equipo?"
+            description="Esta acción no se puede deshacer"
+            onConfirm={() => handleDelete(record.id)}
+            okText="Sí"
+            cancelText="No"
+          >
+            <Button size="small" danger icon={<DeleteOutlined />}>
+              Eliminar
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+      width: 200,
+      fixed: "right" as const,
+    },
+  ];
+
   return (
     <div>
       <Space direction="vertical" style={{ width: "100%" }}>
@@ -173,61 +253,19 @@ const TeamsView: React.FC = () => {
           </Button>
         </Space>
 
-        <List
-          loading={loading}
-          grid={{ gutter: 16, xs: 1, sm: 2, md: 2, lg: 3, xl: 4, xxl: 4 }}
+        <Table
+          columns={getTableColumns()}
           dataSource={teams}
-          renderItem={(team) => (
-            <List.Item>
-              <Card
-                actions={[
-                  <EditOutlined
-                    key="edit"
-                    onClick={() => showEditModal(team)}
-                  />,
-                  <DeleteOutlined
-                    key="delete"
-                    onClick={() =>
-                      Modal.confirm({
-                        title: "¿Estás seguro de eliminar este equipo?",
-                        content:
-                          "Esta acción no se puede deshacer y eliminará también todos los jugadores asociados.",
-                        okText: "Sí",
-                        okType: "danger",
-                        cancelText: "No",
-                        onOk: () => handleDelete(team.id),
-                      })
-                    }
-                  />,
-                ]}
-              >
-                <Card.Meta
-                  avatar={
-                    <Avatar
-                      style={{
-                        backgroundColor: "#1890ff",
-                        verticalAlign: "middle",
-                      }}
-                      size="large"
-                    >
-                      {team.nombre.charAt(0)}
-                    </Avatar>
-                  }
-                  title={team.nombre}
-                  description={
-                    <Space direction="vertical">
-                      <Text>Ciudad: {team.ciudad}</Text>
-                      <Text>Categoría: {team.categoria}</Text>
-                      <Text>
-                        Jugadores: {team.players?.length || 0}{" "}
-                        {team.players?.length === 1 ? "jugador" : "jugadores"}
-                      </Text>
-                    </Space>
-                  }
-                />
-              </Card>
-            </List.Item>
-          )}
+          loading={loading}
+          rowKey="id"
+          scroll={{ x: 1000 }}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            showTotal: (total, range) =>
+              `${range[0]}-${range[1]} de ${total} equipos`,
+          }}
         />
       </Space>
 

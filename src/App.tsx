@@ -10,6 +10,7 @@ import { useState } from "react";
 import TeamsView from "./views/TeamsView";
 import GamesView from "./views/GamesView";
 import GameDetailView from "./views/GameDetailView";
+import GameStatsView from "./views/GameStatsView";
 import PlayersView from "./views/PlayersView";
 import EventsView from "./views/EventsView";
 
@@ -55,6 +56,7 @@ const App: React.FC = () => {
               <Route path="/" element={<TeamsView />} />
               <Route path="/games" element={<GamesView />} />
               <Route path="/games/:id" element={<GameDetailView />} />
+              <Route path="/games/:id/stats" element={<GameStatsView />} />
               <Route path="/players" element={<PlayersView />} />
               <Route path="/events" element={<EventsView />} />
             </Routes>

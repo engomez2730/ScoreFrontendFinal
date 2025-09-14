@@ -1,7 +1,20 @@
 import React, { useEffect, useState } from "react";
-import { Button, Form, Input, Modal, Space, Table, message, App } from "antd";
-import { EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import {
+  Button,
+  Form,
+  Input,
+  Modal,
+  Space,
+  Table,
+  message,
+  App,
+  Popconfirm,
+  Typography,
+} from "antd";
+import { EditOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { eventAPI } from "../services/apiService";
+
+const { Title } = Typography;
 
 interface Event {
   id: number;
@@ -121,37 +134,68 @@ const EventsView: React.FC = () => {
 
   const columns = [
     {
+      title: "ID",
+      dataIndex: "id",
+      key: "id",
+      width: 80,
+    },
+    {
       title: "Nombre",
       dataIndex: "nombre",
       key: "nombre",
+      width: 200,
     },
     {
       title: "Fecha Inicio",
       dataIndex: "fechaInicio",
       key: "fechaInicio",
       render: (date: string) => new Date(date).toLocaleDateString(),
+      width: 150,
     },
     {
       title: "Fecha Fin",
       dataIndex: "fechaFin",
       key: "fechaFin",
       render: (date: string) => new Date(date).toLocaleDateString(),
+      width: 150,
+    },
+    {
+      title: "Duración",
+      key: "duration",
+      render: (_: any, record: Event) => {
+        const start = new Date(record.fechaInicio);
+        const end = new Date(record.fechaFin);
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        return `${diffDays} día${diffDays > 1 ? "s" : ""}`;
+      },
+      width: 120,
     },
   ];
 
   return (
     <div>
       <Space direction="vertical" style={{ width: "100%" }}>
-        <Button
-          type="primary"
-          onClick={() => {
-            setEditingEvent(null);
-            form.resetFields();
-            setIsModalOpen(true);
+        <Space
+          style={{
+            marginBottom: 16,
+            justifyContent: "space-between",
+            width: "100%",
           }}
         >
-          Crear Evento
-        </Button>
+          <Title level={2}>Eventos</Title>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setEditingEvent(null);
+              form.resetFields();
+              setIsModalOpen(true);
+            }}
+          >
+            Nuevo Evento
+          </Button>
+        </Space>
 
         <Table
           dataSource={events}
@@ -163,28 +207,38 @@ const EventsView: React.FC = () => {
               render: (_, record: Event) => (
                 <Space>
                   <Button
+                    size="small"
                     icon={<EditOutlined />}
                     onClick={() => showEditModal(record)}
-                  />
-                  <Button
-                    icon={<DeleteOutlined />}
-                    danger
-                    onClick={() =>
-                      Modal.confirm({
-                        title: "¿Estás seguro de eliminar este evento?",
-                        content: "Esta acción no se puede deshacer",
-                        okText: "Sí",
-                        okType: "danger",
-                        cancelText: "No",
-                        onOk: () => handleDelete(record.id),
-                      })
-                    }
-                  />
+                  >
+                    Editar
+                  </Button>
+                  <Popconfirm
+                    title="¿Estás seguro de eliminar este evento?"
+                    description="Esta acción no se puede deshacer"
+                    onConfirm={() => handleDelete(record.id)}
+                    okText="Sí"
+                    cancelText="No"
+                  >
+                    <Button size="small" icon={<DeleteOutlined />} danger>
+                      Eliminar
+                    </Button>
+                  </Popconfirm>
                 </Space>
               ),
+              width: 200,
+              fixed: "right" as const,
             },
           ]}
           rowKey="id"
+          scroll={{ x: 800 }}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            showTotal: (total, range) =>
+              `${range[0]}-${range[1]} de ${total} eventos`,
+          }}
         />
 
         <Modal

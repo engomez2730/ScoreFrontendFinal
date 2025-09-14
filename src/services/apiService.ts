@@ -20,8 +20,16 @@ export const gameAPI = {
   getGame: (gameId: string | number) => api.get(`/games/${gameId}`),
 
   // Update game
-  updateGame: (gameId: string | number, gameData: any) =>
-    api.put(`/games/${gameId}`, gameData),
+  updateGame: (
+    gameId: string | number,
+    gameData: {
+      eventId: number;
+      teamHomeId: number;
+      teamAwayId: number;
+      fecha: string;
+      estado: string;
+    }
+  ) => api.put(`/games/${gameId}`, gameData),
 
   // Update game time
   updateGameTime: (gameId: string | number, gameTime: number) =>
@@ -39,7 +47,31 @@ export const gameAPI = {
   ) => api.put(`/games/${gameId}/score`, { homeScore, awayScore }),
 
   // Get active players
-  getActivePlayers: (gameId: string | number) => api.get(`/games/${gameId}/active-players`),
+  getActivePlayers: (gameId: string | number) =>
+    api.get(`/games/${gameId}/active-players`),
+
+  // Start game with active players
+  startGame: (
+    gameId: string | number,
+    gameData: {
+      activePlayerIds: number[];
+      gameSettings?: {
+        quarterLength?: number;
+        totalQuarters?: number;
+        overtimeLength?: number;
+      };
+    }
+  ) => api.post(`/games/${gameId}/start`, gameData),
+
+  // Update active players (replaces both home and away)
+  updateActivePlayers: (gameId: string | number, playerIds: number[]) =>
+    api.put(`/games/${gameId}/active-players`, { playerIds }),
+
+  // Update player minutes in bulk
+  updatePlayerMinutes: (
+    gameId: string | number,
+    playerMinutes: Record<string, number>
+  ) => api.put(`/games/${gameId}/player-minutes`, playerMinutes),
 
   // Update player stats
   updatePlayerStats: (gameId: string | number, playerId: number, stats: any) =>
@@ -53,7 +85,6 @@ export const gameAPI = {
       shotType: string;
       made: boolean;
       gameTime: number;
-      playerMinutes: number;
     }
   ) => api.post(`/games/${gameId}/record-shot`, shotData),
 
@@ -106,6 +137,21 @@ export const gameAPI = {
   // Get game stats
   getGameStats: (gameId: string | number) => api.get(`/games/${gameId}/stats`),
 
+  // Make substitution (updated endpoints)
+  makeHomeSubstitution: (substitutionData: {
+    gameId: number;
+    playerOutId: number;
+    playerInId: number;
+    gameTime: number;
+  }) => api.post(`/substitutions/team/home`, substitutionData),
+
+  makeAwaySubstitution: (substitutionData: {
+    gameId: number;
+    playerOutId: number;
+    playerInId: number;
+    gameTime: number;
+  }) => api.post(`/substitutions/team/away`, substitutionData),
+
   // Create new game
   createGame: (gameData: any) => api.post("/games", gameData),
 
@@ -125,7 +171,8 @@ export const teamAPI = {
   createTeam: (teamData: any) => api.post("/teams", teamData),
 
   // Update team
-  updateTeam: (teamId: string | number, teamData: any) => api.put(`/teams/${teamId}`, teamData),
+  updateTeam: (teamId: string | number, teamData: any) =>
+    api.put(`/teams/${teamId}`, teamData),
 
   // Delete team
   deleteTeam: (teamId: string | number) => api.delete(`/teams/${teamId}`),
@@ -133,7 +180,7 @@ export const teamAPI = {
 
 // Substitution API functions
 export const substitutionAPI = {
-  // Create substitution
+  // Create substitution (legacy endpoint)
   createSubstitution: (substitutionData: any) =>
     api.post("/substitutions", substitutionData),
 
@@ -158,10 +205,12 @@ export const playerAPI = {
   createPlayer: (playerData: any) => api.post("/players", playerData),
 
   // Update player
-  updatePlayer: (playerId: string | number, playerData: any) => api.put(`/players/${playerId}`, playerData),
+  updatePlayer: (playerId: string | number, playerData: any) =>
+    api.put(`/players/${playerId}`, playerData),
 
   // Delete player
-  deletePlayer: (playerId: string | number) => api.delete(`/players/${playerId}`),
+  deletePlayer: (playerId: string | number) =>
+    api.delete(`/players/${playerId}`),
 };
 
 // Event API functions
@@ -176,7 +225,8 @@ export const eventAPI = {
   createEvent: (eventData: any) => api.post("/events", eventData),
 
   // Update event
-  updateEvent: (eventId: string | number, eventData: any) => api.put(`/events/${eventId}`, eventData),
+  updateEvent: (eventId: string | number, eventData: any) =>
+    api.put(`/events/${eventId}`, eventData),
 
   // Delete event
   deleteEvent: (eventId: string | number) => api.delete(`/events/${eventId}`),
