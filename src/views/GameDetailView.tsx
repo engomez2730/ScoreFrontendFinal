@@ -564,29 +564,16 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       const currentGameTime = QUARTER_LENGTH - gameTime; // Convert countdown time to elapsed time
       console.log("Game time:", currentGameTime);
 
-      // Get all players currently on court for plus-minus calculation
-      const playersOnCourt: number[] = [];
-      
-      if (homeTeam) {
-        const homePlayersOnCourt = homeTeam.players.filter(p => p.isOnCourt);
-        playersOnCourt.push(...homePlayersOnCourt.map(p => p.id));
-        console.log(`🏠 Home players on court: ${homePlayersOnCourt.map(p => `${p.nombre} (${p.id})`).join(', ')}`);
-      }
-      
-      if (awayTeam) {
-        const awayPlayersOnCourt = awayTeam.players.filter(p => p.isOnCourt);
-        playersOnCourt.push(...awayPlayersOnCourt.map(p => p.id));
-        console.log(`✈️ Away players on court: ${awayPlayersOnCourt.map(p => `${p.nombre} (${p.id})`).join(', ')}`);
-      }
-
-      console.log(`📊 Total players on court: ${playersOnCourt.length} players:`, playersOnCourt);
+      // Get player's current minutes (convert from milliseconds to seconds)
+      const playerCurrentMinutes = Math.floor((playerMinutes[statsModal.player.id] || 0) / 1000);
+      console.log(`Player ${statsModal.player.nombre} current minutes: ${playerCurrentMinutes} seconds`);
 
       await gameAPI.recordShot(game.id, {
         playerId: statsModal.player.id,
         shotType,
         made,
         gameTime: currentGameTime,
-        playersOnCourt, // Include all 10 players on court
+        playerMinutes: playerCurrentMinutes,
       });
 
       console.log("Shot recorded successfully");
@@ -794,6 +781,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       // Update all player minutes in a single bulk request
       await gameAPI.updatePlayerMinutes(game.id, playerMinutesPayload);
 
+      // NOTE: Plus-minus is now automatically calculated by the backend when recording shots
+      // No need to update plus-minus manually from frontend
+      /*
       // Convert playerPlusMinus to the format expected by the backend
       const playerPlusMinusPayload: Record<string, number> = {};
 
@@ -838,9 +828,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       } else {
         console.log("⚠️ No plus-minus data to send to API");
       }
+      */
 
       message.success({
-        content: "Minutos y estadísticas +/- guardados exitosamente",
+        content: "Minutos guardados exitosamente (Plus-minus calculado automáticamente por el backend)",
         duration: 3,
       });
     } catch (error: any) {

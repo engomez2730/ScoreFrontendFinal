@@ -95,7 +95,7 @@ export const gameAPI = {
       shotType: string;
       made: boolean;
       gameTime: number;
-      playersOnCourt: number[]; // Array of all 10 player IDs currently on court
+      playerMinutes: number;
     }
   ) => api.post(`/games/${gameId}/record-shot`, shotData),
 
