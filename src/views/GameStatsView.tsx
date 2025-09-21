@@ -121,8 +121,16 @@ const GameStatsView: React.FC = () => {
     }
   };
 
-  const formatTime = (minutes: number): string => {
-    const totalSeconds = Math.floor(minutes / 1000);
+  const formatTime = (milliseconds: number): string => {
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const formatPlayerMinutes = (seconds: number): string => {
+    // Backend stores player minutes as seconds
+    const totalSeconds = Math.floor(seconds);
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
@@ -174,7 +182,7 @@ const GameStatsView: React.FC = () => {
       key: "minutos",
       width: 60,
       align: "center" as const,
-      render: (minutos: number) => formatTime(minutos),
+      render: (minutos: number) => formatPlayerMinutes(minutos),
     },
     {
       title: "PTS",

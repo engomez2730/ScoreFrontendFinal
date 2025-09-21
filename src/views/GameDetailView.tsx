@@ -169,6 +169,27 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>(
     {}
   );
+  // Track player plus-minus: {playerId: plusMinusValue}
+  const [playerPlusMinus, setPlayerPlusMinus] = useState<
+    Record<number, number>
+  >(() => {
+    // Initialize from localStorage if available
+    const gameId = window.location.pathname.split('/').pop();
+    const saved = localStorage.getItem(`game-${gameId}-plusminus`);
+    return saved ? JSON.parse(saved) : {};
+  });
+  
+  // Save plus-minus to localStorage whenever it changes
+  useEffect(() => {
+    const gameId = window.location.pathname.split('/').pop();
+    console.log(`💾 SAVING plus-minus to localStorage for game ${gameId}:`, playerPlusMinus);
+    localStorage.setItem(`game-${gameId}-plusminus`, JSON.stringify(playerPlusMinus));
+    
+    // Verify it was saved
+    const savedValue = localStorage.getItem(`game-${gameId}-plusminus`);
+    console.log(`✅ VERIFIED localStorage content:`, savedValue);
+  }, [playerPlusMinus]);
+
   const [statsModal, setStatsModal] = useState<{
     visible: boolean;
     player: Player | null;
@@ -543,11 +564,29 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       const currentGameTime = QUARTER_LENGTH - gameTime; // Convert countdown time to elapsed time
       console.log("Game time:", currentGameTime);
 
+      // Get all players currently on court for plus-minus calculation
+      const playersOnCourt: number[] = [];
+      
+      if (homeTeam) {
+        const homePlayersOnCourt = homeTeam.players.filter(p => p.isOnCourt);
+        playersOnCourt.push(...homePlayersOnCourt.map(p => p.id));
+        console.log(`🏠 Home players on court: ${homePlayersOnCourt.map(p => `${p.nombre} (${p.id})`).join(', ')}`);
+      }
+      
+      if (awayTeam) {
+        const awayPlayersOnCourt = awayTeam.players.filter(p => p.isOnCourt);
+        playersOnCourt.push(...awayPlayersOnCourt.map(p => p.id));
+        console.log(`✈️ Away players on court: ${awayPlayersOnCourt.map(p => `${p.nombre} (${p.id})`).join(', ')}`);
+      }
+
+      console.log(`📊 Total players on court: ${playersOnCourt.length} players:`, playersOnCourt);
+
       await gameAPI.recordShot(game.id, {
         playerId: statsModal.player.id,
         shotType,
         made,
         gameTime: currentGameTime,
+        playersOnCourt, // Include all 10 players on court
       });
 
       console.log("Shot recorded successfully");
@@ -607,10 +646,6 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     }
 
     setPlayerMinutes(newPlayerMinutes);
-    console.log(
-      "Player minutes (milliseconds) reset for new game - all players initialized to 0ms"
-    );
-    console.log("Player minutes state:", newPlayerMinutes);
   };
 
   // Timer management functions (following documentation)
@@ -633,9 +668,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       return; // Already running
     }
 
-    console.log("Starting NEW timer and player minutes tracking");
     const interval = setInterval(async () => {
-      console.log("Timer tick - interval ID:", interval);
       setGameTime((prev) => {
         const newTime = prev - 1;
         if (newTime >= 0) {
@@ -676,11 +709,14 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           }
           return newTime;
         }
-        // Stop the timer at 0:00
-        console.log("Timer reached 0:00, stopping interval:", interval);
+        // Timer reached 0:00 - handle quarter end
+        console.log("Timer reached 0:00, handling quarter end...");
         clearInterval(interval);
         setTimerInterval(null);
         setIsClockRunning(false);
+
+        // Automatically go to next quarter
+        handleQuarterEnd();
         return 0;
       });
     }, 1000);
@@ -690,7 +726,44 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     setIsClockRunning(true);
   };
 
+  // Handle quarter end - automatically go to next quarter
+  const handleQuarterEnd = async () => {
+    if (!game) return;
+
+    try {
+      console.log("🏁 Quarter ended, going to next quarter...");
+
+      // Save current stats before quarter ends
+      await stopTimer();
+
+      // Call backend to advance to next quarter
+      const response = await gameAPI.nextQuarter(game.id);
+      console.log("Next quarter response:", response.data);
+
+      // Update game data with new quarter info
+      const updatedGame = await gameAPI.getGame(game.id);
+      setGame(updatedGame.data);
+
+      // Reset timer for new quarter
+      setGameTime(QUARTER_LENGTH);
+
+      // Show quarter change notification
+      message.success({
+        content: `¡Cuarto ${updatedGame.data.currentQuarter} iniciado!`,
+        duration: 4,
+      });
+
+      // Reset entry scores for plus-minus tracking (new quarter, fresh start)
+      console.log("✅ Quarter transition completed successfully");
+    } catch (error: any) {
+      console.error("Error handling quarter end:", error);
+      message.error("Error al cambiar de cuarto");
+    }
+  };
+
   const stopTimer = async () => {
+    console.log("⏹️ STOPPING TIMER - Plus-minus update process starting...");
+    console.log("Current playerPlusMinus state:", playerPlusMinus);
     console.log("Stopping timer. Current interval ID:", timerInterval);
     if (timerInterval) {
       clearInterval(timerInterval);
@@ -716,17 +789,58 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       allPlayers.forEach((player) => {
         const millisecondsPlayed = playerMinutes[player.id] || 0;
         playerMinutesPayload[player.id.toString()] = millisecondsPlayed;
-        console.log(
-          `Player ${player.nombre} ${player.apellido} (ID: ${player.id}): ${millisecondsPlayed}ms`
-        );
       });
 
       // Update all player minutes in a single bulk request
       await gameAPI.updatePlayerMinutes(game.id, playerMinutesPayload);
-      console.log("Bulk player minutes update completed successfully");
+
+      // Convert playerPlusMinus to the format expected by the backend
+      const playerPlusMinusPayload: Record<string, number> = {};
+
+      // Use Object.entries to get both key and value reliably
+      // Since playerPlusMinus is Record<number, number>, we need to handle the conversion properly
+      for (const [playerIdKey, plusMinusValue] of Object.entries(
+        playerPlusMinus
+      )) {
+        if (typeof plusMinusValue === "number") {
+          playerPlusMinusPayload[playerIdKey] = plusMinusValue;
+        }
+      }
+
+      console.log("🔄 Converting plus-minus data for API:");
+      console.log("Original playerPlusMinus:", playerPlusMinus);
+      console.log(
+        "Number of players with plus-minus:",
+        Object.keys(playerPlusMinus).length
+      );
+      console.log("PlayerPlusMinus entries:", Object.entries(playerPlusMinus));
+      console.log("Converted payload:", playerPlusMinusPayload);
+      console.log("Payload entries:", Object.entries(playerPlusMinusPayload));
+
+      // Send plus-minus to backend
+      if (Object.keys(playerPlusMinusPayload).length > 0) {
+        console.log("📤 Sending plus-minus request to API...");
+        console.log("URL:", `PUT /api/games/${game.id}/player-plusminus`);
+        console.log("Payload:", playerPlusMinusPayload);
+
+        const response = await gameAPI.updatePlayerPlusMinus(
+          game.id,
+          playerPlusMinusPayload
+        );
+
+        console.log("✅ API Response received:");
+        console.log("Status:", response.status);
+        console.log("Response data:", response.data);
+        console.log(
+          "Bulk player plus-minus update completed successfully:",
+          playerPlusMinusPayload
+        );
+      } else {
+        console.log("⚠️ No plus-minus data to send to API");
+      }
 
       message.success({
-        content: "Minutos de jugadores guardados exitosamente",
+        content: "Minutos y estadísticas +/- guardados exitosamente",
         duration: 3,
       });
     } catch (error: any) {
@@ -746,16 +860,262 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     if (!game) return;
 
     try {
+      console.log(`🏀 ==== TEAM SCORED! ====`);
+      console.log(`🏀 SCORE UPDATE: ${homeScore}-${awayScore}`);
+      console.log(
+        `🏀 Previous scores - Home: ${homeTeam?.score || 0}, Away: ${
+          awayTeam?.score || 0
+        }`
+      );
+
+      // Calculate the score difference for logging purposes
+      const prevHomeScore = homeTeam?.score || 0;
+      const prevAwayScore = awayTeam?.score || 0;
+      const homeScoreChange = homeScore - prevHomeScore;
+      const awayScoreChange = awayScore - prevAwayScore;
+
+      console.log(`🏀 Score changes: Home +${homeScoreChange}, Away +${awayScoreChange}`);
+      console.log(`📊 Plus-minus calculation will be handled by backend when shots are recorded`);
+
       await gameAPI.updateScore(game.id, homeScore, awayScore);
 
       setHomeTeam((prev) => (prev ? { ...prev, score: homeScore } : null));
       setAwayTeam((prev) => (prev ? { ...prev, score: awayScore } : null));
+
+      console.log(`🏀 Team scores updated in state`);
+      console.log(`🏀 ==== SCORE UPDATE COMPLETE ====`);
     } catch (error) {
       notification.error({
         message: "Error",
         description: "No se pudo actualizar el marcador",
       });
     }
+  };
+
+  // Plus-minus calculation is now handled by the backend when shots are recorded
+  // The backend receives the playersOnCourt array and calculates plus-minus automatically
+
+  const updatePlusMinusDirectly = (homeScoreChange: number, awayScoreChange: number) => {
+    console.log(`📊 ==== SIMPLE PLUS-MINUS UPDATE START ====`);
+    console.log(`🏀 Score changes: Home +${homeScoreChange}, Away +${awayScoreChange}`);
+
+    if (homeScoreChange === 0 && awayScoreChange === 0) {
+      console.log("⚠️ No score change, skipping plus-minus update");
+      return;
+    }
+
+    if (!homeTeam || !awayTeam) {
+      console.log("❌ No teams available");
+      return;
+    }
+
+    // Get players currently on court using isOnCourt property
+    const homePlayersOnCourt = homeTeam.players.filter((p) => p.isOnCourt);
+    const awayPlayersOnCourt = awayTeam.players.filter((p) => p.isOnCourt);
+
+    console.log(`🔍 HOME TEAM DEBUG:`);
+    console.log(`  Total players: ${homeTeam.players.length}`);
+    homeTeam.players.forEach(p => console.log(`  ${p.nombre} (ID: ${p.id}) - isOnCourt: ${p.isOnCourt}`));
+    console.log(`  Players on court: ${homePlayersOnCourt.length}`);
+
+    console.log(`🔍 AWAY TEAM DEBUG:`);
+    console.log(`  Total players: ${awayTeam.players.length}`);
+    awayTeam.players.forEach(p => console.log(`  ${p.nombre} (ID: ${p.id}) - isOnCourt: ${p.isOnCourt}`));
+    console.log(`  Players on court: ${awayPlayersOnCourt.length}`);
+
+    if (homePlayersOnCourt.length === 0 && awayPlayersOnCourt.length === 0) {
+      console.log("⚠️ NO PLAYERS ON COURT - This is why plus-minus isn't updating!");
+      console.log("⚠️ Make sure to set players as 'on court' before updating scores");
+      return;
+    }
+
+    // Update plus-minus directly 
+    setPlayerPlusMinus((current) => {
+      console.log(`🔍 Current plus-minus before update:`, current);
+      console.log(`🔍 Current plus-minus has ${Object.keys(current).length} players`);
+      
+      const updated = { ...current };
+      let totalUpdated = 0;
+
+      // If home team scored
+      if (homeScoreChange > 0) {
+        console.log(`🏠 HOME TEAM SCORED +${homeScoreChange} points!`);
+        
+        // All home players on court get positive points
+        homePlayersOnCourt.forEach((player) => {
+          const oldValue = updated[player.id] || 0;
+          updated[player.id] = oldValue + homeScoreChange;
+          totalUpdated++;
+          console.log(`🏠 ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]} (+${homeScoreChange})`);
+        });
+
+        // All away players on court get negative points
+        awayPlayersOnCourt.forEach((player) => {
+          const oldValue = updated[player.id] || 0;
+          updated[player.id] = oldValue - homeScoreChange;
+          totalUpdated++;
+          console.log(`✈️ ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]} (-${homeScoreChange})`);
+        });
+      }
+
+      // If away team scored
+      if (awayScoreChange > 0) {
+        console.log(`✈️ AWAY TEAM SCORED +${awayScoreChange} points!`);
+        
+        // All away players on court get positive points
+        awayPlayersOnCourt.forEach((player) => {
+          const oldValue = updated[player.id] || 0;
+          updated[player.id] = oldValue + awayScoreChange;
+          totalUpdated++;
+          console.log(`✈️ ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]} (+${awayScoreChange})`);
+        });
+
+        // All home players on court get negative points
+        homePlayersOnCourt.forEach((player) => {
+          const oldValue = updated[player.id] || 0;
+          updated[player.id] = oldValue - awayScoreChange;
+          totalUpdated++;
+          console.log(`🏠 ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]} (-${awayScoreChange})`);
+        });
+      }
+
+      console.log(`📊 SUMMARY: Updated ${totalUpdated} player plus-minus values`);
+      console.log(`🔍 Final plus-minus state:`, updated);
+      console.log(`🔍 Updated plus-minus has ${Object.keys(updated).length} players`);
+
+      // Save to localStorage immediately
+      const gameId = window.location.pathname.split('/').pop();
+      localStorage.setItem(`game-${gameId}-plusminus`, JSON.stringify(updated));
+      console.log(`💾 Saved to localStorage for game ${gameId}:`, updated);
+      console.log(`📊 ==== SIMPLE PLUS-MINUS UPDATE END ====`);
+
+      return updated;
+    });
+  };
+
+  const updatePlusMinusForScoreChange = (
+    newHomeScore: number,
+    newAwayScore: number
+  ) => {
+    console.log(`📊 ==== PLUS-MINUS CALCULATION START ====`);
+    console.log(`🏀 Score changed to ${newHomeScore}-${newAwayScore}, updating plus-minus...`);
+    
+    if (!homeTeam || !awayTeam) {
+      console.log("❌ No teams available for plus-minus update");
+      return;
+    }
+
+    // Get current scores before the change
+    const previousHomeScore = homeTeam.score || 0;
+    const previousAwayScore = awayTeam.score || 0;
+    
+    // Calculate score differences
+    const homeScoreDiff = newHomeScore - previousHomeScore;
+    const awayScoreDiff = newAwayScore - previousAwayScore;
+    
+    console.log(`� Score changes: Home +${homeScoreDiff}, Away +${awayScoreDiff}`);
+    
+    if (homeScoreDiff === 0 && awayScoreDiff === 0) {
+      console.log("⚠️ No score change detected");
+      return;
+    }
+
+    // Get all players currently on court
+    const homePlayersOnCourt = homeTeam.players.filter((p) => p.isOnCourt);
+    const awayPlayersOnCourt = awayTeam.players.filter((p) => p.isOnCourt);
+    
+    console.log(`📊 Home players on court: ${homePlayersOnCourt.length}`, homePlayersOnCourt.map((p) => `${p.nombre} (${p.id})`));
+    console.log(`� Away players on court: ${awayPlayersOnCourt.length}`, awayPlayersOnCourt.map((p) => `${p.nombre} (${p.id})`));
+
+    if (homePlayersOnCourt.length === 0 && awayPlayersOnCourt.length === 0) {
+      console.log("⚠️ No players on court - cannot update plus-minus");
+      return;
+    }
+
+    // Create new plus-minus object immediately (like minutes pattern)
+    const updatedPlusMinus = { ...playerPlusMinus };
+    let playersUpdated = 0;
+
+    // SIMPLE LOGIC: If home team scored, home players get +points, away players get -points
+    if (homeScoreDiff > 0) {
+      console.log(`🏠 HOME TEAM SCORED +${homeScoreDiff} points!`);
+      
+      // Home team players get positive points
+      homePlayersOnCourt.forEach((player) => {
+        const oldPlusMinus = updatedPlusMinus[player.id] || 0;
+        updatedPlusMinus[player.id] = oldPlusMinus + homeScoreDiff;
+        playersUpdated++;
+
+        console.log(`🏠 HOME Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`);
+        console.log(`    Old +/-: ${oldPlusMinus}`);
+        console.log(`    Change: +${homeScoreDiff} (home team scored)`);
+        console.log(`    New +/-: ${updatedPlusMinus[player.id]}`);
+      });
+
+      // Away team players get negative points
+      awayPlayersOnCourt.forEach((player) => {
+        const oldPlusMinus = updatedPlusMinus[player.id] || 0;
+        updatedPlusMinus[player.id] = oldPlusMinus - homeScoreDiff;
+        playersUpdated++;
+
+        console.log(`✈️ AWAY Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`);
+        console.log(`    Old +/-: ${oldPlusMinus}`);
+        console.log(`    Change: -${homeScoreDiff} (opponent scored)`);
+        console.log(`    New +/-: ${updatedPlusMinus[player.id]}`);
+      });
+    }
+
+    // SIMPLE LOGIC: If away team scored, away players get +points, home players get -points
+    if (awayScoreDiff > 0) {
+      console.log(`✈️ AWAY TEAM SCORED +${awayScoreDiff} points!`);
+      
+      // Away team players get positive points
+      awayPlayersOnCourt.forEach((player) => {
+        const oldPlusMinus = updatedPlusMinus[player.id] || 0;
+        updatedPlusMinus[player.id] = oldPlusMinus + awayScoreDiff;
+        playersUpdated++;
+
+        console.log(`✈️ AWAY Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`);
+        console.log(`    Old +/-: ${oldPlusMinus}`);
+        console.log(`    Change: +${awayScoreDiff} (away team scored)`);
+        console.log(`    New +/-: ${updatedPlusMinus[player.id]}`);
+      });
+
+      // Home team players get negative points
+      homePlayersOnCourt.forEach((player) => {
+        const oldPlusMinus = updatedPlusMinus[player.id] || 0;
+        updatedPlusMinus[player.id] = oldPlusMinus - awayScoreDiff;
+        playersUpdated++;
+
+        console.log(`🏠 HOME Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`);
+        console.log(`    Old +/-: ${oldPlusMinus}`);
+        console.log(`    Change: -${awayScoreDiff} (opponent scored)`);
+        console.log(`    New +/-: ${updatedPlusMinus[player.id]}`);
+      });
+    }
+
+    console.log(`📊 Plus-minus update summary:`);
+    console.log(`    Players processed: ${homePlayersOnCourt.length + awayPlayersOnCourt.length}`);
+    console.log(`    Players updated: ${playersUpdated}`);
+    console.log(`    Updated plus-minus state:`, updatedPlusMinus);
+    console.log(`🔍 VERIFICATION: Updated object keys:`, Object.keys(updatedPlusMinus));
+    console.log(`🔍 VERIFICATION: Updated object entries:`, Object.entries(updatedPlusMinus));
+    
+    // Update state with new values
+    setPlayerPlusMinus(updatedPlusMinus);
+    console.log(`✅ setPlayerPlusMinus called with:`, updatedPlusMinus);
+    
+    // Verify state update with setTimeout
+    setTimeout(() => {
+      console.log(`🔍 VERIFICATION after setState: playerPlusMinus is now:`, playerPlusMinus);
+    }, 100);
+    
+    // Save immediately to localStorage with the UPDATED values
+    const gameId = window.location.pathname.split('/').pop();
+    localStorage.setItem(`game-${gameId}-plusminus`, JSON.stringify(updatedPlusMinus));
+    console.log(`💾 IMMEDIATELY saved to localStorage for game ${gameId}:`, updatedPlusMinus);
+    
+    console.log(`📊 ==== PLUS-MINUS CALCULATION END ====`);
   };
 
   useEffect(() => {
@@ -772,31 +1132,36 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     };
   }, [id]); // Simple dependency on id only
 
+  // Debug: Watch for changes to playerPlusMinus
+  useEffect(() => {
+    console.log("🔍 playerPlusMinus state changed:", playerPlusMinus);
+    console.log(
+      "🔍 Number of players with plus-minus data:",
+      Object.keys(playerPlusMinus).length
+    );
+    const nonZeroPlayers = Object.entries(playerPlusMinus).filter(
+      ([_, value]) => value !== 0
+    );
+    console.log("🔍 Players with non-zero plus-minus:", nonZeroPlayers);
+  }, [playerPlusMinus]);
+
   const loadGameData = useCallback(async () => {
-    console.log("Loading game data for ID:", id);
+    console.log(
+      " Current playerPlusMinus before loadGameData:",
+      playerPlusMinus
+    );
     try {
       // Load game data
-      console.log(
-        "Fetching game from:",
-        `http://localhost:4000/api/games/${id}`
-      );
       const gameResponse = await gameAPI.getGame(id!);
-      console.log("Game response:", gameResponse);
       const game = gameResponse.data;
-      console.log("Game data:", game);
       setGame(game);
 
       // Load both teams and their players
-      console.log("Fetching teams:", game.teamHomeId, game.teamAwayId);
-
       try {
         const [homeTeamResponse, awayTeamResponse] = await Promise.all([
           teamAPI.getTeam(game.teamHomeId),
           teamAPI.getTeam(game.teamAwayId),
         ]);
-
-        console.log("Home team response:", homeTeamResponse.data);
-        console.log("Away team response:", awayTeamResponse.data);
 
         // Handle active players differently based on game state
         let homeActiveIds: number[] = [];
@@ -846,7 +1211,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           score: game.score?.home || 0,
           players: (homeTeamResponse.data.players || []).map((p: Player) => {
             // Preserve existing player stats if available (from React state)
-            const existingPlayer = homeTeam?.players?.find((existing: Player) => existing.id === p.id);
+            const existingPlayer = homeTeam?.players?.find(
+              (existing: Player) => existing.id === p.id
+            );
             return {
               ...p,
               isOnCourt: homeActiveIds.includes(p.id),
@@ -859,7 +1226,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           score: game.score?.away || 0,
           players: (awayTeamResponse.data.players || []).map((p: Player) => {
             // Preserve existing player stats if available (from React state)
-            const existingPlayer = awayTeam?.players?.find((existing: Player) => existing.id === p.id);
+            const existingPlayer = awayTeam?.players?.find(
+              (existing: Player) => existing.id === p.id
+            );
             return {
               ...p,
               isOnCourt: awayActiveIds.includes(p.id),
@@ -875,15 +1244,37 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         setAwayTeam(newAwayTeam);
 
         // Initialize player minutes for all players when game data loads
+        // Preserve existing minutes if available, otherwise start at 0
         const allPlayers = [...newHomeTeam.players, ...newAwayTeam.players];
-        const initialPlayerMinutes: Record<number, number> = {};
-        allPlayers.forEach((player) => {
-          initialPlayerMinutes[player.id] = 0; // Start at 0 milliseconds
+        setPlayerMinutes((prev) => {
+          const initialPlayerMinutes: Record<number, number> = {};
+          allPlayers.forEach((player) => {
+            // Keep existing minutes if available, otherwise start at 0
+            initialPlayerMinutes[player.id] = prev[player.id] || 0;
+          });
+          return initialPlayerMinutes;
         });
-        setPlayerMinutes(initialPlayerMinutes);
+
+        // Initialize player plus-minus for all players when game data loads
+        // BUT ONLY if playerPlusMinus is empty (first load)
+        if (Object.keys(playerPlusMinus).length === 0) {
+          console.log("🆕 First time loading - initializing plus-minus for all players to 0");
+          setPlayerPlusMinus(() => {
+            const initialPlayerPlusMinus: Record<number, number> = {};
+            allPlayers.forEach((player) => {
+              // Initialize all players to 0 plus-minus
+              initialPlayerPlusMinus[player.id] = 0;
+              console.log(`🔢 Initialized player ${player.nombre} ${player.apellido} (${player.id}) +/- to 0`);
+            });
+            console.log("📊 All players plus-minus initialized:", initialPlayerPlusMinus);
+            return initialPlayerPlusMinus;
+          });
+        } else {
+          console.log("♻️ Plus-minus already initialized, preserving existing values:", playerPlusMinus);
+        }
 
         console.log(
-          "Game data loaded successfully with player minutes initialized"
+          "Game data loaded successfully with player minutes and plus-minus initialized"
         );
       } catch (teamError) {
         console.error("Error loading teams/players:", teamError);
@@ -895,7 +1286,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       console.error("Error loading game data:", err);
       message.error("Error loading game data");
     }
-  }, [id]); // Add dependency on id
+  }, [id]); // Only depend on id to prevent infinite re-renders
 
   const startGame = async () => {
     if (!game) return;
@@ -938,6 +1329,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
       // Update local state
       setGame((prev) => (prev ? { ...prev, estado: "in_progress" } : null));
+
+      console.log("Game started successfully with selected players");
 
       // Update isOnCourt status for selected players
       setHomeTeam((prev) => {
@@ -1113,7 +1506,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                 <Button
                   size="small"
                   onClick={() =>
-                    updateScore(game.homeScore + 1, game.awayScore)
+                    updateScore(
+                      (homeTeam?.score || 0) + 1,
+                      awayTeam?.score || 0
+                    )
                   }
                 >
                   +1
@@ -1121,7 +1517,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                 <Button
                   size="small"
                   onClick={() =>
-                    updateScore(game.homeScore + 2, game.awayScore)
+                    updateScore(
+                      (homeTeam?.score || 0) + 2,
+                      awayTeam?.score || 0
+                    )
                   }
                 >
                   +2
@@ -1129,7 +1528,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                 <Button
                   size="small"
                   onClick={() =>
-                    updateScore(game.homeScore + 3, game.awayScore)
+                    updateScore(
+                      (homeTeam?.score || 0) + 3,
+                      awayTeam?.score || 0
+                    )
                   }
                 >
                   +3
@@ -1137,7 +1539,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                 <Button
                   size="small"
                   onClick={() =>
-                    updateScore(Math.max(0, game.homeScore - 1), game.awayScore)
+                    updateScore(
+                      Math.max(0, (homeTeam?.score || 0) - 1),
+                      awayTeam?.score || 0
+                    )
                   }
                 >
                   -1
@@ -1263,7 +1668,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                 <Button
                   size="small"
                   onClick={() =>
-                    updateScore(homeTeam.score, awayTeam.score + 1)
+                    updateScore(
+                      homeTeam?.score || 0,
+                      (awayTeam?.score || 0) + 1
+                    )
                   }
                 >
                   +1
@@ -1271,7 +1679,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                 <Button
                   size="small"
                   onClick={() =>
-                    updateScore(homeTeam.score, awayTeam.score + 2)
+                    updateScore(
+                      homeTeam?.score || 0,
+                      (awayTeam?.score || 0) + 2
+                    )
                   }
                 >
                   +2
@@ -1279,7 +1690,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                 <Button
                   size="small"
                   onClick={() =>
-                    updateScore(homeTeam.score, awayTeam.score + 3)
+                    updateScore(
+                      homeTeam?.score || 0,
+                      (awayTeam?.score || 0) + 3
+                    )
                   }
                 >
                   +3
@@ -1287,7 +1701,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                 <Button
                   size="small"
                   onClick={() =>
-                    updateScore(homeTeam.score, Math.max(0, awayTeam.score - 1))
+                    updateScore(
+                      homeTeam?.score || 0,
+                      Math.max(0, (awayTeam?.score || 0) - 1)
+                    )
                   }
                 >
                   -1

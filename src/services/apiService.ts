@@ -39,6 +39,10 @@ export const gameAPI = {
   resetGameTime: (gameId: string | number) =>
     api.post(`/games/${gameId}/reset-time`),
 
+  // Next quarter
+  nextQuarter: (gameId: string | number) =>
+    api.post(`/games/${gameId}/next-quarter`),
+
   // Update game score
   updateScore: (
     gameId: string | number,
@@ -73,6 +77,12 @@ export const gameAPI = {
     playerMinutes: Record<string, number>
   ) => api.put(`/games/${gameId}/player-minutes`, playerMinutes),
 
+  // Update player plus-minus in bulk
+  updatePlayerPlusMinus: (
+    gameId: string | number,
+    playerPlusMinus: Record<string, number>
+  ) => api.put(`/games/${gameId}/player-plusminus`, playerPlusMinus),
+
   // Update player stats
   updatePlayerStats: (gameId: string | number, playerId: number, stats: any) =>
     api.put(`/games/${gameId}/player-stats`, { playerId, stats }),
@@ -85,6 +95,7 @@ export const gameAPI = {
       shotType: string;
       made: boolean;
       gameTime: number;
+      playersOnCourt: number[]; // Array of all 10 player IDs currently on court
     }
   ) => api.post(`/games/${gameId}/record-shot`, shotData),
 
