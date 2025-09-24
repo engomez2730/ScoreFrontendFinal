@@ -119,6 +119,10 @@ export const gameAPI = {
   recordTurnover: (gameId: string | number, playerId: number) =>
     api.post(`/games/${gameId}/record-turnover`, { playerId }),
 
+  // Record personal foul
+  recordFoul: (gameId: string | number, playerId: number) =>
+    api.post(`/games/${gameId}/record-personal-foul`, { playerId }),
+
   // Save full game state
   saveGameState: (
     gameId: string | number,

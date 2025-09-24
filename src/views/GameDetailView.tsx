@@ -82,6 +82,8 @@ interface Player {
     tiros3Anotados: number;
     minutos: number;
     plusMinus: number;
+    faltasPersonales?: number;
+    perdidas?: number;
   };
   isOnCourt?: boolean;
 }
@@ -440,7 +442,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   };
 
   const recordStat = async (
-    statType: "assist" | "rebound" | "steal" | "block" | "turnover"
+    statType: "assist" | "rebound" | "steal" | "block" | "turnover" | "foul"
   ) => {
     console.log("recordStat called:", {
       statType,
@@ -492,6 +494,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         case "turnover":
           await gameAPI.recordTurnover(game.id, statsModal.player.id);
           break;
+        case "foul":
+          await gameAPI.recordFoul(game.id, statsModal.player.id);
+          break;
       }
 
       console.log("Stat recorded successfully");
@@ -506,6 +511,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             ? "robo"
             : statType === "turnover"
             ? "pérdida"
+            : statType === "foul"
+            ? "falta personal"
             : "tapón"
         } para ${statsModal.player.nombre} ${statsModal.player.apellido}`,
       });
@@ -2321,15 +2328,28 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
                 <div>
                   <Title level={5}>Errores</Title>
-                  <Button
-                    type="primary"
-                    danger
-                    size="large"
-                    style={{ width: "120px" }}
-                    onClick={() => recordStat("turnover")}
-                  >
-                    Pérdida
-                  </Button>
+                  <Space>
+                    <Button
+                      type="primary"
+                      danger
+                      size="large"
+                      style={{ width: "120px" }}
+                      onClick={() => recordStat("turnover")}
+                    >
+                      Pérdida
+                    </Button>
+                    <Button
+                      type="primary"
+                      style={{ 
+                        width: "120px",
+                        backgroundColor: "#ff7a45",
+                        borderColor: "#ff7a45"
+                      }}
+                      onClick={() => recordStat("foul")}
+                    >
+                      Falta Personal
+                    </Button>
+                  </Space>
                 </div>
 
                 {statsModal.player?.stats && (
@@ -2372,6 +2392,18 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                         <Statistic
                           title="Tapones"
                           value={statsModal.player.stats.tapones}
+                        />
+                      </Col>
+                      <Col span={6}>
+                        <Statistic
+                          title="Faltas"
+                          value={statsModal.player.stats.faltasPersonales || 0}
+                        />
+                      </Col>
+                      <Col span={6}>
+                        <Statistic
+                          title="Pérdidas"
+                          value={statsModal.player.stats.perdidas || 0}
                         />
                       </Col>
                       <Col span={12}>
