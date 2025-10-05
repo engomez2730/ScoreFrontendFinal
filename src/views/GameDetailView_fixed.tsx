@@ -11,6 +11,7 @@ import {
   App,
   Tabs,
   Checkbox,
+  message,
 } from "antd";
 import {
   PlayCircleOutlined,
@@ -122,6 +123,9 @@ const GameDetailView: React.FC = () => {
   const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(
     null
   );
+  const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>({});
+  const [lastTimerUpdate, setLastTimerUpdate] = useState<number>(Date.now());
+  const QUARTER_LENGTH = 600; // 10 minutes in seconds
   const [statModal, setStatModal] = useState<{
     visible: boolean;
     player: Player | null;
@@ -214,20 +218,132 @@ const GameDetailView: React.FC = () => {
       setGameTime((prev) => {
         const newTime = prev + 1;
         updateGameTime(newTime);
+        
+        // Check if quarter ended (assuming 10 minutes = 600 seconds per quarter)
+        if (newTime > 0 && newTime % QUARTER_LENGTH === 0) {
+          console.log("Quarter ended at:", newTime);
+          handleQuarterEnd();
+        }
+        
         return newTime;
       });
+      
+      // Update player minutes for all players currently on court
+      updatePlayerMinutes();
     }, 1000);
 
     setTimerInterval(interval);
     setIsClockRunning(true);
+    setLastTimerUpdate(Date.now());
   };
 
-  const stopTimer = () => {
+  // Update player minutes for all players currently on court
+  const updatePlayerMinutes = () => {
+    if (!homeTeam || !awayTeam) return;
+    
+    const now = Date.now();
+    const elapsed = now - lastTimerUpdate; // milliseconds since last update
+    
+    setPlayerMinutes((prev) => {
+      const updated = { ...prev };
+      
+      // Add time for all players currently on court
+      const onCourtPlayers = [
+        ...getOnCourtPlayers(homeTeam),
+        ...getOnCourtPlayers(awayTeam),
+      ];
+      
+      onCourtPlayers.forEach((player) => {
+        updated[player.id] = (updated[player.id] || 0) + elapsed;
+      });
+      
+      return updated;
+    });
+    
+    setLastTimerUpdate(now);
+  };
+
+  // Handle quarter end - automatically go to next quarter and save stats
+  const handleQuarterEnd = async () => {
+    if (!game) return;
+
+    try {
+      console.log("🏁 Quarter ended, saving stats and going to next quarter...");
+
+      // Save current stats before quarter ends (same logic as stopTimer)
+      await savePlayerMinutesToBackend();
+
+      // Reset timer for new quarter (or handle game end logic)
+      setGameTime((prev) => prev); // Keep current time, backend will handle quarter transition
+
+      message.success({
+        content: "¡Cuarto finalizado! Estadísticas guardadas.",
+        duration: 4,
+      });
+
+      console.log("✅ Quarter transition completed successfully");
+    } catch (error) {
+      console.error("Error handling quarter end:", error);
+      notification.error({
+        message: "Error",
+        description: "Error al finalizar el cuarto",
+      });
+    }
+  };
+
+  // Save player minutes to backend (extracted from stopTimer logic)
+  const savePlayerMinutesToBackend = async () => {
+    if (!game || !homeTeam || !awayTeam) {
+      notification.error({
+        message: "Error",
+        description: "No se pueden guardar las estadísticas: faltan datos del juego",
+      });
+      return;
+    }
+
+    try {
+      console.log("Saving player minutes to backend:", playerMinutes);
+
+      // Convert playerMinutes to the format expected by the bulk endpoint
+      const playerMinutesPayload: Record<string, number> = {};
+      const allPlayers = [...homeTeam.players, ...awayTeam.players];
+
+      allPlayers.forEach((player) => {
+        const millisecondsPlayed = playerMinutes[player.id] || 0;
+        playerMinutesPayload[player.id.toString()] = millisecondsPlayed;
+      });
+
+      // Update all player minutes in a single bulk request
+      await axios.put(`http://localhost:4000/api/games/${game.id}/player-minutes`, playerMinutesPayload);
+
+      console.log("✅ Player minutes saved successfully");
+    } catch (error) {
+      console.error("Error saving player minutes:", error);
+      throw error; // Re-throw to be handled by caller
+    }
+  };
+
+  const stopTimer = async () => {
     if (timerInterval) {
       clearInterval(timerInterval);
       setTimerInterval(null);
     }
     setIsClockRunning(false);
+    
+    // Save player minutes when timer stops
+    try {
+      await savePlayerMinutesToBackend();
+      notification.success({
+        message: "Cronómetro detenido",
+        description: "Minutos de jugadores guardados exitosamente",
+      });
+    } catch (error) {
+      console.error("Error saving player minutes on stop:", error);
+      notification.error({
+        message: "Error",
+        description: "Error al guardar las estadísticas",
+      });
+    }
   };
 
   const resetTimer = async () => {
@@ -306,6 +422,14 @@ const GameDetailView: React.FC = () => {
 
       setHomeTeam(homeTeam);
       setAwayTeam(awayTeam);
+      
+      // Initialize player minutes for all players
+      const initialPlayerMinutes: Record<number, number> = {};
+      [...homeTeam.players, ...awayTeam.players].forEach((player) => {
+        initialPlayerMinutes[player.id] = 0;
+      });
+      setPlayerMinutes(initialPlayerMinutes);
+      
     } catch (err) {
       notification.error({
         message: "Error",
@@ -370,6 +494,12 @@ const GameDetailView: React.FC = () => {
 
       await axios.put(`http://localhost:4000/games/${id}`, gameUpdateData);
 
+      // First, set the starters using the proper endpoint
+      await axios.post(`http://localhost:4000/api/games/${id}/set-starters`, {
+        homeStarters: selectedPlayers.home,
+        awayStarters: selectedPlayers.away,
+      });
+
       // Then, create substitutions for each starter
       const timestamp = new Date().toISOString();
 
@@ -425,6 +555,9 @@ const GameDetailView: React.FC = () => {
 
       // Start the game timer automatically
       startTimer();
+      
+      // Initialize timer tracking
+      setLastTimerUpdate(Date.now());
 
       // Notify success
       notification.success({

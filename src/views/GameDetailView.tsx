@@ -22,6 +22,7 @@ import {
 
 import { gameAPI, teamAPI } from "../services/apiService";
 import gameService from "../api/gameService";
+import axios from "axios";
 
 const { Title, Text } = Typography;
 
@@ -1319,6 +1320,14 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       });
 
       console.log("Game started successfully");
+
+      // Step 1.5: Set the starters using the proper endpoint
+      await axios.post(`http://localhost:4000/api/games/${id}/set-starters`, {
+        homeStarters: selectedPlayers.home,
+        awayStarters: selectedPlayers.away,
+      });
+
+      console.log("Starters set successfully");
 
       // Step 2: Set all active players (replaces both home and away calls)
       await gameAPI.updateActivePlayers(id!, allActivePlayerIds);
