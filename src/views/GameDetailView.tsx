@@ -22,7 +22,9 @@ import {
 
 import { gameAPI, teamAPI } from "../services/apiService";
 import gameService from "../api/gameService";
-import axios from "axios";
+import permissionService from "../api/permissionService";
+import api from "../api/axios";
+import { useAuth } from "../contexts/AuthContext";
 
 const { Title, Text } = Typography;
 
@@ -149,6 +151,7 @@ interface Game {
 
 const GameDetailView: React.FC = (): React.ReactNode => {
   const { id } = useParams<{ id: string }>();
+  const { user, hasPermission, joinGame, currentGamePermissions } = useAuth();
   const { notification } = App.useApp();
   const [game, setGame] = useState<Game | null>(null);
   const [homeTeam, setHomeTeam] = useState<Team | null>(null);
@@ -177,17 +180,23 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     Record<number, number>
   >(() => {
     // Initialize from localStorage if available
-    const gameId = window.location.pathname.split('/').pop();
+    const gameId = window.location.pathname.split("/").pop();
     const saved = localStorage.getItem(`game-${gameId}-plusminus`);
     return saved ? JSON.parse(saved) : {};
   });
-  
+
   // Save plus-minus to localStorage whenever it changes
   useEffect(() => {
-    const gameId = window.location.pathname.split('/').pop();
-    console.log(`💾 SAVING plus-minus to localStorage for game ${gameId}:`, playerPlusMinus);
-    localStorage.setItem(`game-${gameId}-plusminus`, JSON.stringify(playerPlusMinus));
-    
+    const gameId = window.location.pathname.split("/").pop();
+    console.log(
+      `💾 SAVING plus-minus to localStorage for game ${gameId}:`,
+      playerPlusMinus
+    );
+    localStorage.setItem(
+      `game-${gameId}-plusminus`,
+      JSON.stringify(playerPlusMinus)
+    );
+
     // Verify it was saved
     const savedValue = localStorage.getItem(`game-${gameId}-plusminus`);
     console.log(`✅ VERIFIED localStorage content:`, savedValue);
@@ -237,20 +246,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   // Handle stats modal
   const openStatsModal = (
     player: Player,
-    activeTab: "shots" | "other" = "shots"
+    activeTab?: "shots" | "other"
   ) => {
     console.log("Opening stats modal for player:", player);
-    console.log("Clock running:", isClockRunning);
     console.log("Player on court:", player.isOnCourt);
-
-    // Check if the clock is running
-    if (!isClockRunning) {
-      message.warning({
-        content: "El reloj debe estar corriendo para registrar estadísticas",
-        duration: 3,
-      });
-      return;
-    }
 
     // Check if the player is on the court
     if (!player.isOnCourt) {
@@ -261,8 +260,24 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       return;
     }
 
+    // Determine the default tab based on user permissions
+    let defaultTab: "shots" | "other";
+    
+    if (!activeTab) {
+      // If user can edit shots/points/free throws, default to shots tab
+      if (hasPermission("canEditShots") || hasPermission("canEditPoints") || hasPermission("canEditFreeThrows")) {
+        defaultTab = "shots";
+      }
+      // Otherwise, default to other stats tab
+      else {
+        defaultTab = "other";
+      }
+    } else {
+      defaultTab = activeTab;
+    }
+
     console.log("All validations passed, opening modal");
-    setStatsModal({ visible: true, player, activeTab });
+    setStatsModal({ visible: true, player, activeTab: defaultTab });
   };
 
   const closeStatsModal = () => {
@@ -271,22 +286,21 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
   // Handle substitutions
   const startSubstitution = (player: Player, team: "home" | "away") => {
-    if (!isClockRunning) {
-      setSubstitutionState({
-        isSelecting: true,
-        selectedTeam: team,
-        playerOut: player,
-      });
-      message.info({
-        content: `${player.nombre} ${player.apellido} seleccionado. Elige un jugador del banco para sustituir.`,
-        duration: 3,
-      });
-    } else {
-      message.warning({
-        content: "Detén el reloj antes de hacer sustituciones",
-        duration: 3,
-      });
+    if (!hasPermission("canMakeSubstitutions")) {
+      message.error("No tienes permisos para hacer sustituciones");
+      return;
     }
+
+    // Sustituciones permitidas en cualquier momento (timer corriendo o pausado)
+    setSubstitutionState({
+      isSelecting: true,
+      selectedTeam: team,
+      playerOut: player,
+    });
+    message.info({
+      content: `${player.nombre} ${player.apellido} seleccionado. Elige un jugador del banco para sustituir.`,
+      duration: 3,
+    });
   };
 
   const completeSubstitution = async (playerIn: Player) => {
@@ -455,17 +469,6 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       return;
     }
 
-    // Validate clock is running
-    if (!isClockRunning) {
-      console.log("Clock not running");
-      notification.error({
-        message: "Error",
-        description:
-          "El reloj debe estar corriendo para registrar estadísticas",
-      });
-      return;
-    }
-
     // Validate player is on court
     if (!statsModal.player.isOnCourt) {
       console.log("Player not on court");
@@ -547,16 +550,6 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       return;
     }
 
-    // Validate clock is running
-    if (!isClockRunning) {
-      console.log("Clock not running");
-      notification.error({
-        message: "Error",
-        description: "El reloj debe estar corriendo para registrar tiros",
-      });
-      return;
-    }
-
     // Validate player is on court
     if (!statsModal.player.isOnCourt) {
       console.log("Player not on court");
@@ -573,8 +566,12 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       console.log("Game time:", currentGameTime);
 
       // Get player's current minutes (convert from milliseconds to seconds)
-      const playerCurrentMinutes = Math.floor((playerMinutes[statsModal.player.id] || 0) / 1000);
-      console.log(`Player ${statsModal.player.nombre} current minutes: ${playerCurrentMinutes} seconds`);
+      const playerCurrentMinutes = Math.floor(
+        (playerMinutes[statsModal.player.id] || 0) / 1000
+      );
+      console.log(
+        `Player ${statsModal.player.nombre} current minutes: ${playerCurrentMinutes} seconds`
+      );
 
       await gameAPI.recordShot(game.id, {
         playerId: statsModal.player.id,
@@ -839,7 +836,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       */
 
       message.success({
-        content: "Minutos guardados exitosamente (Plus-minus calculado automáticamente por el backend)",
+        content:
+          "Minutos guardados exitosamente (Plus-minus calculado automáticamente por el backend)",
         duration: 3,
       });
     } catch (error: any) {
@@ -873,8 +871,12 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       const homeScoreChange = homeScore - prevHomeScore;
       const awayScoreChange = awayScore - prevAwayScore;
 
-      console.log(`🏀 Score changes: Home +${homeScoreChange}, Away +${awayScoreChange}`);
-      console.log(`📊 Plus-minus calculation will be handled by backend when shots are recorded`);
+      console.log(
+        `🏀 Score changes: Home +${homeScoreChange}, Away +${awayScoreChange}`
+      );
+      console.log(
+        `📊 Plus-minus calculation will be handled by backend when shots are recorded`
+      );
 
       await gameAPI.updateScore(game.id, homeScore, awayScore);
 
@@ -894,9 +896,14 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   // Plus-minus calculation is now handled by the backend when shots are recorded
   // The backend receives the playersOnCourt array and calculates plus-minus automatically
 
-  const updatePlusMinusDirectly = (homeScoreChange: number, awayScoreChange: number) => {
+  const updatePlusMinusDirectly = (
+    homeScoreChange: number,
+    awayScoreChange: number
+  ) => {
     console.log(`📊 ==== SIMPLE PLUS-MINUS UPDATE START ====`);
-    console.log(`🏀 Score changes: Home +${homeScoreChange}, Away +${awayScoreChange}`);
+    console.log(
+      `🏀 Score changes: Home +${homeScoreChange}, Away +${awayScoreChange}`
+    );
 
     if (homeScoreChange === 0 && awayScoreChange === 0) {
       console.log("⚠️ No score change, skipping plus-minus update");
@@ -914,38 +921,52 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
     console.log(`🔍 HOME TEAM DEBUG:`);
     console.log(`  Total players: ${homeTeam.players.length}`);
-    homeTeam.players.forEach(p => console.log(`  ${p.nombre} (ID: ${p.id}) - isOnCourt: ${p.isOnCourt}`));
+    homeTeam.players.forEach((p) =>
+      console.log(`  ${p.nombre} (ID: ${p.id}) - isOnCourt: ${p.isOnCourt}`)
+    );
     console.log(`  Players on court: ${homePlayersOnCourt.length}`);
 
     console.log(`🔍 AWAY TEAM DEBUG:`);
     console.log(`  Total players: ${awayTeam.players.length}`);
-    awayTeam.players.forEach(p => console.log(`  ${p.nombre} (ID: ${p.id}) - isOnCourt: ${p.isOnCourt}`));
+    awayTeam.players.forEach((p) =>
+      console.log(`  ${p.nombre} (ID: ${p.id}) - isOnCourt: ${p.isOnCourt}`)
+    );
     console.log(`  Players on court: ${awayPlayersOnCourt.length}`);
 
     if (homePlayersOnCourt.length === 0 && awayPlayersOnCourt.length === 0) {
-      console.log("⚠️ NO PLAYERS ON COURT - This is why plus-minus isn't updating!");
-      console.log("⚠️ Make sure to set players as 'on court' before updating scores");
+      console.log(
+        "⚠️ NO PLAYERS ON COURT - This is why plus-minus isn't updating!"
+      );
+      console.log(
+        "⚠️ Make sure to set players as 'on court' before updating scores"
+      );
       return;
     }
 
-    // Update plus-minus directly 
+    // Update plus-minus directly
     setPlayerPlusMinus((current) => {
       console.log(`🔍 Current plus-minus before update:`, current);
-      console.log(`🔍 Current plus-minus has ${Object.keys(current).length} players`);
-      
+      console.log(
+        `🔍 Current plus-minus has ${Object.keys(current).length} players`
+      );
+
       const updated = { ...current };
       let totalUpdated = 0;
 
       // If home team scored
       if (homeScoreChange > 0) {
         console.log(`🏠 HOME TEAM SCORED +${homeScoreChange} points!`);
-        
+
         // All home players on court get positive points
         homePlayersOnCourt.forEach((player) => {
           const oldValue = updated[player.id] || 0;
           updated[player.id] = oldValue + homeScoreChange;
           totalUpdated++;
-          console.log(`🏠 ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]} (+${homeScoreChange})`);
+          console.log(
+            `🏠 ${player.nombre} (ID: ${player.id}): ${oldValue} → ${
+              updated[player.id]
+            } (+${homeScoreChange})`
+          );
         });
 
         // All away players on court get negative points
@@ -953,20 +974,28 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           const oldValue = updated[player.id] || 0;
           updated[player.id] = oldValue - homeScoreChange;
           totalUpdated++;
-          console.log(`✈️ ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]} (-${homeScoreChange})`);
+          console.log(
+            `✈️ ${player.nombre} (ID: ${player.id}): ${oldValue} → ${
+              updated[player.id]
+            } (-${homeScoreChange})`
+          );
         });
       }
 
       // If away team scored
       if (awayScoreChange > 0) {
         console.log(`✈️ AWAY TEAM SCORED +${awayScoreChange} points!`);
-        
+
         // All away players on court get positive points
         awayPlayersOnCourt.forEach((player) => {
           const oldValue = updated[player.id] || 0;
           updated[player.id] = oldValue + awayScoreChange;
           totalUpdated++;
-          console.log(`✈️ ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]} (+${awayScoreChange})`);
+          console.log(
+            `✈️ ${player.nombre} (ID: ${player.id}): ${oldValue} → ${
+              updated[player.id]
+            } (+${awayScoreChange})`
+          );
         });
 
         // All home players on court get negative points
@@ -974,16 +1003,24 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           const oldValue = updated[player.id] || 0;
           updated[player.id] = oldValue - awayScoreChange;
           totalUpdated++;
-          console.log(`🏠 ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]} (-${awayScoreChange})`);
+          console.log(
+            `🏠 ${player.nombre} (ID: ${player.id}): ${oldValue} → ${
+              updated[player.id]
+            } (-${awayScoreChange})`
+          );
         });
       }
 
-      console.log(`📊 SUMMARY: Updated ${totalUpdated} player plus-minus values`);
+      console.log(
+        `📊 SUMMARY: Updated ${totalUpdated} player plus-minus values`
+      );
       console.log(`🔍 Final plus-minus state:`, updated);
-      console.log(`🔍 Updated plus-minus has ${Object.keys(updated).length} players`);
+      console.log(
+        `🔍 Updated plus-minus has ${Object.keys(updated).length} players`
+      );
 
       // Save to localStorage immediately
-      const gameId = window.location.pathname.split('/').pop();
+      const gameId = window.location.pathname.split("/").pop();
       localStorage.setItem(`game-${gameId}-plusminus`, JSON.stringify(updated));
       console.log(`💾 Saved to localStorage for game ${gameId}:`, updated);
       console.log(`📊 ==== SIMPLE PLUS-MINUS UPDATE END ====`);
@@ -997,8 +1034,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     newAwayScore: number
   ) => {
     console.log(`📊 ==== PLUS-MINUS CALCULATION START ====`);
-    console.log(`🏀 Score changed to ${newHomeScore}-${newAwayScore}, updating plus-minus...`);
-    
+    console.log(
+      `🏀 Score changed to ${newHomeScore}-${newAwayScore}, updating plus-minus...`
+    );
+
     if (!homeTeam || !awayTeam) {
       console.log("❌ No teams available for plus-minus update");
       return;
@@ -1007,13 +1046,15 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     // Get current scores before the change
     const previousHomeScore = homeTeam.score || 0;
     const previousAwayScore = awayTeam.score || 0;
-    
+
     // Calculate score differences
     const homeScoreDiff = newHomeScore - previousHomeScore;
     const awayScoreDiff = newAwayScore - previousAwayScore;
-    
-    console.log(`� Score changes: Home +${homeScoreDiff}, Away +${awayScoreDiff}`);
-    
+
+    console.log(
+      `� Score changes: Home +${homeScoreDiff}, Away +${awayScoreDiff}`
+    );
+
     if (homeScoreDiff === 0 && awayScoreDiff === 0) {
       console.log("⚠️ No score change detected");
       return;
@@ -1022,9 +1063,15 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     // Get all players currently on court
     const homePlayersOnCourt = homeTeam.players.filter((p) => p.isOnCourt);
     const awayPlayersOnCourt = awayTeam.players.filter((p) => p.isOnCourt);
-    
-    console.log(`📊 Home players on court: ${homePlayersOnCourt.length}`, homePlayersOnCourt.map((p) => `${p.nombre} (${p.id})`));
-    console.log(`� Away players on court: ${awayPlayersOnCourt.length}`, awayPlayersOnCourt.map((p) => `${p.nombre} (${p.id})`));
+
+    console.log(
+      `📊 Home players on court: ${homePlayersOnCourt.length}`,
+      homePlayersOnCourt.map((p) => `${p.nombre} (${p.id})`)
+    );
+    console.log(
+      `� Away players on court: ${awayPlayersOnCourt.length}`,
+      awayPlayersOnCourt.map((p) => `${p.nombre} (${p.id})`)
+    );
 
     if (homePlayersOnCourt.length === 0 && awayPlayersOnCourt.length === 0) {
       console.log("⚠️ No players on court - cannot update plus-minus");
@@ -1038,14 +1085,16 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     // SIMPLE LOGIC: If home team scored, home players get +points, away players get -points
     if (homeScoreDiff > 0) {
       console.log(`🏠 HOME TEAM SCORED +${homeScoreDiff} points!`);
-      
+
       // Home team players get positive points
       homePlayersOnCourt.forEach((player) => {
         const oldPlusMinus = updatedPlusMinus[player.id] || 0;
         updatedPlusMinus[player.id] = oldPlusMinus + homeScoreDiff;
         playersUpdated++;
 
-        console.log(`🏠 HOME Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`);
+        console.log(
+          `🏠 HOME Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`
+        );
         console.log(`    Old +/-: ${oldPlusMinus}`);
         console.log(`    Change: +${homeScoreDiff} (home team scored)`);
         console.log(`    New +/-: ${updatedPlusMinus[player.id]}`);
@@ -1057,7 +1106,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         updatedPlusMinus[player.id] = oldPlusMinus - homeScoreDiff;
         playersUpdated++;
 
-        console.log(`✈️ AWAY Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`);
+        console.log(
+          `✈️ AWAY Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`
+        );
         console.log(`    Old +/-: ${oldPlusMinus}`);
         console.log(`    Change: -${homeScoreDiff} (opponent scored)`);
         console.log(`    New +/-: ${updatedPlusMinus[player.id]}`);
@@ -1067,14 +1118,16 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     // SIMPLE LOGIC: If away team scored, away players get +points, home players get -points
     if (awayScoreDiff > 0) {
       console.log(`✈️ AWAY TEAM SCORED +${awayScoreDiff} points!`);
-      
+
       // Away team players get positive points
       awayPlayersOnCourt.forEach((player) => {
         const oldPlusMinus = updatedPlusMinus[player.id] || 0;
         updatedPlusMinus[player.id] = oldPlusMinus + awayScoreDiff;
         playersUpdated++;
 
-        console.log(`✈️ AWAY Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`);
+        console.log(
+          `✈️ AWAY Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`
+        );
         console.log(`    Old +/-: ${oldPlusMinus}`);
         console.log(`    Change: +${awayScoreDiff} (away team scored)`);
         console.log(`    New +/-: ${updatedPlusMinus[player.id]}`);
@@ -1086,7 +1139,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         updatedPlusMinus[player.id] = oldPlusMinus - awayScoreDiff;
         playersUpdated++;
 
-        console.log(`🏠 HOME Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`);
+        console.log(
+          `🏠 HOME Player ${player.nombre} ${player.apellido} (ID: ${player.id}):`
+        );
         console.log(`    Old +/-: ${oldPlusMinus}`);
         console.log(`    Change: -${awayScoreDiff} (opponent scored)`);
         console.log(`    New +/-: ${updatedPlusMinus[player.id]}`);
@@ -1094,31 +1149,61 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     }
 
     console.log(`📊 Plus-minus update summary:`);
-    console.log(`    Players processed: ${homePlayersOnCourt.length + awayPlayersOnCourt.length}`);
+    console.log(
+      `    Players processed: ${
+        homePlayersOnCourt.length + awayPlayersOnCourt.length
+      }`
+    );
     console.log(`    Players updated: ${playersUpdated}`);
     console.log(`    Updated plus-minus state:`, updatedPlusMinus);
-    console.log(`🔍 VERIFICATION: Updated object keys:`, Object.keys(updatedPlusMinus));
-    console.log(`🔍 VERIFICATION: Updated object entries:`, Object.entries(updatedPlusMinus));
-    
+    console.log(
+      `🔍 VERIFICATION: Updated object keys:`,
+      Object.keys(updatedPlusMinus)
+    );
+    console.log(
+      `🔍 VERIFICATION: Updated object entries:`,
+      Object.entries(updatedPlusMinus)
+    );
+
     // Update state with new values
     setPlayerPlusMinus(updatedPlusMinus);
     console.log(`✅ setPlayerPlusMinus called with:`, updatedPlusMinus);
-    
+
     // Verify state update with setTimeout
     setTimeout(() => {
-      console.log(`🔍 VERIFICATION after setState: playerPlusMinus is now:`, playerPlusMinus);
+      console.log(
+        `🔍 VERIFICATION after setState: playerPlusMinus is now:`,
+        playerPlusMinus
+      );
     }, 100);
-    
+
     // Save immediately to localStorage with the UPDATED values
-    const gameId = window.location.pathname.split('/').pop();
-    localStorage.setItem(`game-${gameId}-plusminus`, JSON.stringify(updatedPlusMinus));
-    console.log(`💾 IMMEDIATELY saved to localStorage for game ${gameId}:`, updatedPlusMinus);
-    
+    const gameId = window.location.pathname.split("/").pop();
+    localStorage.setItem(
+      `game-${gameId}-plusminus`,
+      JSON.stringify(updatedPlusMinus)
+    );
+    console.log(
+      `💾 IMMEDIATELY saved to localStorage for game ${gameId}:`,
+      updatedPlusMinus
+    );
+
     console.log(`📊 ==== PLUS-MINUS CALCULATION END ====`);
   };
 
   useEffect(() => {
-    loadGameData();
+    const initializeGame = async () => {
+      if (id && user) {
+        console.log('🎮 Initializing game for user:', user.rol, 'Game ID:', id);
+        // First join the game to get permissions
+        const joinResult = await joinGame(Number(id));
+        console.log('🎮 Join game result:', joinResult);
+        // Then load game data
+        loadGameData();
+      }
+    };
+
+    initializeGame();
 
     // Cleanup function to clear any running timers when component unmounts or ID changes
     return () => {
@@ -1129,7 +1214,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         setIsClockRunning(false);
       }
     };
-  }, [id]); // Simple dependency on id only
+  }, [id, user]); // Added user dependency
 
   // Debug: Watch for changes to playerPlusMinus
   useEffect(() => {
@@ -1257,19 +1342,29 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         // Initialize player plus-minus for all players when game data loads
         // BUT ONLY if playerPlusMinus is empty (first load)
         if (Object.keys(playerPlusMinus).length === 0) {
-          console.log("🆕 First time loading - initializing plus-minus for all players to 0");
+          console.log(
+            "🆕 First time loading - initializing plus-minus for all players to 0"
+          );
           setPlayerPlusMinus(() => {
             const initialPlayerPlusMinus: Record<number, number> = {};
             allPlayers.forEach((player) => {
               // Initialize all players to 0 plus-minus
               initialPlayerPlusMinus[player.id] = 0;
-              console.log(`🔢 Initialized player ${player.nombre} ${player.apellido} (${player.id}) +/- to 0`);
+              console.log(
+                `🔢 Initialized player ${player.nombre} ${player.apellido} (${player.id}) +/- to 0`
+              );
             });
-            console.log("📊 All players plus-minus initialized:", initialPlayerPlusMinus);
+            console.log(
+              "📊 All players plus-minus initialized:",
+              initialPlayerPlusMinus
+            );
             return initialPlayerPlusMinus;
           });
         } else {
-          console.log("♻️ Plus-minus already initialized, preserving existing values:", playerPlusMinus);
+          console.log(
+            "♻️ Plus-minus already initialized, preserving existing values:",
+            playerPlusMinus
+          );
         }
 
         console.log(
@@ -1322,7 +1417,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       console.log("Game started successfully");
 
       // Step 1.5: Set the starters using the proper endpoint
-      await axios.post(`http://localhost:4000/api/games/${id}/set-starters`, {
+      await api.post(`/games/${id}/set-starters`, {
         homeStarters: selectedPlayers.home,
         awayStarters: selectedPlayers.away,
       });
@@ -1595,6 +1690,12 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                     icon={<PlayCircleOutlined />}
                     style={{ width: "100%" }}
                     onClick={() => setIsLineupModalVisible(true)}
+                    disabled={!hasPermission("canSetStarters")}
+                    title={
+                      !hasPermission("canSetStarters")
+                        ? "No tienes permisos para configurar quintetos"
+                        : undefined
+                    }
                   >
                     Configurar Quintetos e Iniciar Juego
                   </Button>
@@ -1611,7 +1712,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   </div>
                 </Space>
               )}
-              {game.estado === "in_progress" && (
+              {game.estado === "in_progress" && user?.rol === 'ADMIN' && (
                 <div style={{ textAlign: "center" }}>
                   <Title
                     level={1}
@@ -1631,9 +1732,45 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                       isClockRunning ? stopTimer() : startTimer()
                     }
                     size="large"
+                    disabled={!hasPermission("canControlTime")}
+                    title={
+                      !hasPermission("canControlTime")
+                        ? "No tienes permisos para controlar el tiempo"
+                        : undefined
+                    }
                   >
                     {isClockRunning ? "Pausar" : "Reanudar"}
                   </Button>
+
+                  {/* Debug section for permissions - Only for ADMIN users */}
+                  {user?.rol === 'ADMIN' && (
+                    <div style={{ 
+                      marginTop: 16, 
+                      padding: 8, 
+                      background: '#f0f0f0', 
+                      borderRadius: 4,
+                      fontSize: 12 
+                    }}>
+                      <div><strong>Debug Info:</strong></div>
+                      <div>User Role: {user?.rol}</div>
+                      <div>Timer Running: {isClockRunning ? 'YES' : 'NO'}</div>
+                      <div>Can Add Stats: YES (allowed anytime)</div>
+                      <div>Can Substitute: YES (allowed anytime)</div>
+                      <div>Has canControlTime: {hasPermission('canControlTime') ? 'YES' : 'NO'}</div>
+                      <div>Current Permissions: {currentGamePermissions ? 'LOADED' : 'NOT LOADED (using defaults)'}</div>
+                      {currentGamePermissions && (
+                        <div>canControlTime: {currentGamePermissions.canControlTime ? 'TRUE' : 'FALSE'}</div>
+                      )}
+                      {!currentGamePermissions && user?.rol && (
+                        <div>Default canControlTime for {user.rol}: {
+                          (() => {
+                            const defaultPerms = permissionService.getDefaultPermissions(user.rol);
+                            return defaultPerms.canControlTime ? 'TRUE' : 'FALSE';
+                          })()
+                        }</div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Show warning if no active players are set */}
                   {selectedPlayers.home.length === 0 &&
@@ -1656,6 +1793,12 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                           type="primary"
                           style={{ marginTop: 8 }}
                           onClick={() => setIsLineupModalVisible(true)}
+                          disabled={!hasPermission("canSetStarters")}
+                          title={
+                            !hasPermission("canSetStarters")
+                              ? "No tienes permisos para configurar quintetos"
+                              : undefined
+                          }
                         >
                           Configurar Quintetos
                         </Button>
@@ -1759,11 +1902,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                       openStatsModal(p);
                     }
                   }}
-                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | ${
-                    isClockRunning
-                      ? "Click to record stats, Shift+Click to substitute"
-                      : "Start clock to record stats, Shift+Click to substitute"
-                  }`}
+                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats, Shift+Click to substitute`}
                 >
                   <b style={{ fontSize: 18 }}>{p.numero}</b>
                   <span style={{ fontSize: 10, fontWeight: "bold" }}>
@@ -1821,11 +1960,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                       openStatsModal(p);
                     }
                   }}
-                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | ${
-                    isClockRunning
-                      ? "Click to record stats, Shift+Click to substitute"
-                      : "Start clock to record stats, Shift+Click to substitute"
-                  }`}
+                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats, Shift+Click to substitute`}
                 >
                   <b style={{ fontSize: 18 }}>{p.numero}</b>
                   <span style={{ fontSize: 10, fontWeight: "bold" }}>
@@ -2196,242 +2331,278 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             }))
           }
         >
-          <Tabs.TabPane tab="Tiros" key="shots">
-            <div style={{ textAlign: "center", padding: "20px 0" }}>
-              {/* 2-Point Field Goals */}
-              <div style={{ marginBottom: 24 }}>
-                <Title level={5}>Tiros de 2 Puntos</Title>
-                <Space>
-                  <Button
-                    type="primary"
-                    size="large"
-                    style={{
-                      width: "120px",
-                      backgroundColor: "#52c41a",
-                      borderColor: "#52c41a",
-                    }}
-                    onClick={() => recordShot("2pt", true)}
-                  >
-                    Anotado
-                  </Button>
-                  <Button
-                    type="primary"
-                    danger
-                    size="large"
-                    style={{ width: "120px" }}
-                    onClick={() => recordShot("2pt", false)}
-                  >
-                    Fallado
-                  </Button>
-                </Space>
-              </div>
-
-              {/* 3-Point Field Goals */}
-              <div style={{ marginBottom: 24 }}>
-                <Title level={5}>Tiros de 3 Puntos</Title>
-                <Space>
-                  <Button
-                    type="primary"
-                    size="large"
-                    style={{
-                      width: "120px",
-                      backgroundColor: "#52c41a",
-                      borderColor: "#52c41a",
-                    }}
-                    onClick={() => recordShot("3pt", true)}
-                  >
-                    Anotado
-                  </Button>
-                  <Button
-                    type="primary"
-                    danger
-                    size="large"
-                    style={{ width: "120px" }}
-                    onClick={() => recordShot("3pt", false)}
-                  >
-                    Fallado
-                  </Button>
-                </Space>
-              </div>
-
-              {/* Free Throws */}
-              <div>
-                <Title level={5}>Tiros Libres</Title>
-                <Space>
-                  <Button
-                    type="primary"
-                    size="large"
-                    style={{
-                      width: "120px",
-                      backgroundColor: "#52c41a",
-                      borderColor: "#52c41a",
-                    }}
-                    onClick={() => recordShot("ft", true)}
-                  >
-                    Anotado
-                  </Button>
-                  <Button
-                    type="primary"
-                    danger
-                    size="large"
-                    style={{ width: "120px" }}
-                    onClick={() => recordShot("ft", false)}
-                  >
-                    Fallado
-                  </Button>
-                </Space>
-              </div>
-            </div>
-          </Tabs.TabPane>
-
-          <Tabs.TabPane tab="Otras Estadísticas" key="other">
-            <div style={{ textAlign: "center", padding: "20px 0" }}>
-              <Space
-                direction="vertical"
-                size="large"
-                style={{ width: "100%" }}
-              >
-                <div>
-                  <Title level={5}>Rebotes y Asistencias</Title>
-                  <Space>
-                    <Button
-                      type="primary"
-                      size="large"
-                      style={{ width: "120px" }}
-                      onClick={() => recordStat("rebound")}
-                    >
-                      Rebote
-                    </Button>
-                    <Button
-                      type="primary"
-                      size="large"
-                      style={{ width: "120px" }}
-                      onClick={() => recordStat("assist")}
-                    >
-                      Asistencia
-                    </Button>
-                  </Space>
-                </div>
-
-                <div>
-                  <Title level={5}>Defensa</Title>
-                  <Space>
-                    <Button
-                      type="primary"
-                      size="large"
-                      style={{ width: "120px" }}
-                      onClick={() => recordStat("steal")}
-                    >
-                      Robo
-                    </Button>
-                    <Button
-                      type="primary"
-                      size="large"
-                      style={{ width: "120px" }}
-                      onClick={() => recordStat("block")}
-                    >
-                      Tapón
-                    </Button>
-                  </Space>
-                </div>
-
-                <div>
-                  <Title level={5}>Errores</Title>
-                  <Space>
-                    <Button
-                      type="primary"
-                      danger
-                      size="large"
-                      style={{ width: "120px" }}
-                      onClick={() => recordStat("turnover")}
-                    >
-                      Pérdida
-                    </Button>
-                    <Button
-                      type="primary"
-                      style={{ 
-                        width: "120px",
-                        backgroundColor: "#ff7a45",
-                        borderColor: "#ff7a45"
-                      }}
-                      onClick={() => recordStat("foul")}
-                    >
-                      Falta Personal
-                    </Button>
-                  </Space>
-                </div>
-
-                {statsModal.player?.stats && (
-                  <div style={{ marginTop: 24 }}>
-                    <Title level={5}>Estadísticas Actuales</Title>
-                    <Row gutter={[16, 16]}>
-                      <Col span={6}>
-                        <Statistic
-                          title="Puntos"
-                          value={statsModal.player.stats.puntos}
-                        />
-                      </Col>
-                      <Col span={6}>
-                        <Statistic
-                          title="Rebotes"
-                          value={statsModal.player.stats.rebotes}
-                        />
-                      </Col>
-                      <Col span={6}>
-                        <Statistic
-                          title="Asistencias"
-                          value={statsModal.player.stats.asistencias}
-                        />
-                      </Col>
-                      <Col span={6}>
-                        <Statistic
-                          title="Minutos"
-                          value={Math.floor(
-                            statsModal.player.stats.minutos / 60
-                          )}
-                        />
-                      </Col>
-                      <Col span={6}>
-                        <Statistic
-                          title="Robos"
-                          value={statsModal.player.stats.robos}
-                        />
-                      </Col>
-                      <Col span={6}>
-                        <Statistic
-                          title="Tapones"
-                          value={statsModal.player.stats.tapones}
-                        />
-                      </Col>
-                      <Col span={6}>
-                        <Statistic
-                          title="Faltas"
-                          value={statsModal.player.stats.faltasPersonales || 0}
-                        />
-                      </Col>
-                      <Col span={6}>
-                        <Statistic
-                          title="Pérdidas"
-                          value={statsModal.player.stats.perdidas || 0}
-                        />
-                      </Col>
-                      <Col span={12}>
-                        <Statistic
-                          title="Tiros de Campo"
-                          value={`${statsModal.player.stats.tirosAnotados}/${statsModal.player.stats.tirosIntentados}`}
-                          suffix={`(${Math.round(
-                            (statsModal.player.stats.tirosAnotados /
-                              statsModal.player.stats.tirosIntentados || 0) *
-                              100
-                          )}%)`}
-                        />
-                      </Col>
-                    </Row>
+          {/* Shots Tab - Show for SCORER, ALL_AROUND, and ADMIN */}
+          {(hasPermission("canEditShots") || hasPermission("canEditPoints") || hasPermission("canEditFreeThrows")) && (
+            <Tabs.TabPane tab="Tiros" key="shots">
+              <div style={{ textAlign: "center", padding: "20px 0" }}>
+                {/* 2-Point Field Goals */}
+                {hasPermission("canEditShots") && (
+                  <div style={{ marginBottom: 24 }}>
+                    <Title level={5}>Tiros de 2 Puntos</Title>
+                    <Space>
+                      <Button
+                        type="primary"
+                        size="large"
+                        style={{
+                          width: "120px",
+                          backgroundColor: "#52c41a",
+                          borderColor: "#52c41a",
+                        }}
+                        onClick={() => recordShot("2pt", true)}
+                      >
+                        Anotado
+                      </Button>
+                      <Button
+                        type="primary"
+                        danger
+                        size="large"
+                        style={{ width: "120px" }}
+                        onClick={() => recordShot("2pt", false)}
+                      >
+                        Fallado
+                      </Button>
+                    </Space>
                   </div>
                 )}
-              </Space>
-            </div>
-          </Tabs.TabPane>
+
+                {/* 3-Point Field Goals */}
+                {hasPermission("canEditShots") && (
+                  <div style={{ marginBottom: 24 }}>
+                    <Title level={5}>Tiros de 3 Puntos</Title>
+                    <Space>
+                      <Button
+                        type="primary"
+                        size="large"
+                        style={{
+                          width: "120px",
+                          backgroundColor: "#52c41a",
+                          borderColor: "#52c41a",
+                        }}
+                        onClick={() => recordShot("3pt", true)}
+                      >
+                        Anotado
+                      </Button>
+                      <Button
+                        type="primary"
+                        danger
+                        size="large"
+                        style={{ width: "120px" }}
+                        onClick={() => recordShot("3pt", false)}
+                      >
+                        Fallado
+                      </Button>
+                    </Space>
+                  </div>
+                )}
+
+                {/* Free Throws */}
+                {hasPermission("canEditFreeThrows") && (
+                  <div>
+                    <Title level={5}>Tiros Libres</Title>
+                    <Space>
+                      <Button
+                        type="primary"
+                        size="large"
+                        style={{
+                          width: "120px",
+                          backgroundColor: "#52c41a",
+                          borderColor: "#52c41a",
+                        }}
+                        onClick={() => recordShot("ft", true)}
+                      >
+                        Anotado
+                      </Button>
+                      <Button
+                        type="primary"
+                        danger
+                        size="large"
+                        style={{ width: "120px" }}
+                        onClick={() => recordShot("ft", false)}
+                      >
+                        Fallado
+                      </Button>
+                    </Space>
+                  </div>
+                )}
+              </div>
+            </Tabs.TabPane>
+          )}
+
+          {/* Other Stats Tab - Show sections based on permissions */}
+          {(hasPermission("canEditRebounds") || hasPermission("canEditAssists") || 
+            hasPermission("canEditSteals") || hasPermission("canEditBlocks") || 
+            hasPermission("canEditTurnovers") || hasPermission("canEditPersonalFouls")) && (
+            <Tabs.TabPane tab="Otras Estadísticas" key="other">
+              <div style={{ textAlign: "center", padding: "20px 0" }}>
+                <Space
+                  direction="vertical"
+                  size="large"
+                  style={{ width: "100%" }}
+                >
+                  {/* Rebounds and Assists - Show for REBOUNDER_ASSISTS, ALL_AROUND, ADMIN */}
+                  {(hasPermission("canEditRebounds") || hasPermission("canEditAssists")) && (
+                    <div>
+                      <Title level={5}>Rebotes y Asistencias</Title>
+                      <Space>
+                        {hasPermission("canEditRebounds") && (
+                          <Button
+                            type="primary"
+                            size="large"
+                            style={{ width: "120px" }}
+                            onClick={() => recordStat("rebound")}
+                          >
+                            Rebote
+                          </Button>
+                        )}
+                        {hasPermission("canEditAssists") && (
+                          <Button
+                            type="primary"
+                            size="large"
+                            style={{ width: "120px" }}
+                            onClick={() => recordStat("assist")}
+                          >
+                            Asistencia
+                          </Button>
+                        )}
+                      </Space>
+                    </div>
+                  )}
+
+                  {/* Defense - Show for STEALS_BLOCKS, ALL_AROUND, ADMIN */}
+                  {(hasPermission("canEditSteals") || hasPermission("canEditBlocks")) && (
+                    <div>
+                      <Title level={5}>Defensa</Title>
+                      <Space>
+                        {hasPermission("canEditSteals") && (
+                          <Button
+                            type="primary"
+                            size="large"
+                            style={{ width: "120px" }}
+                            onClick={() => recordStat("steal")}
+                          >
+                            Robo
+                          </Button>
+                        )}
+                        {hasPermission("canEditBlocks") && (
+                          <Button
+                            type="primary"
+                            size="large"
+                            style={{ width: "120px" }}
+                            onClick={() => recordStat("block")}
+                          >
+                            Tapón
+                          </Button>
+                        )}
+                      </Space>
+                    </div>
+                  )}
+
+                  {/* Errors - Show for REBOUNDER_ASSISTS (turnovers), ALL_AROUND, ADMIN */}
+                  {(hasPermission("canEditTurnovers") || hasPermission("canEditPersonalFouls")) && (
+                    <div>
+                      <Title level={5}>Errores</Title>
+                      <Space>
+                        {hasPermission("canEditTurnovers") && (
+                          <Button
+                            type="primary"
+                            danger
+                            size="large"
+                            style={{ width: "120px" }}
+                            onClick={() => recordStat("turnover")}
+                          >
+                            Pérdida
+                          </Button>
+                        )}
+                        {hasPermission("canEditPersonalFouls") && (
+                          <Button
+                            type="primary"
+                            style={{
+                              width: "120px",
+                              backgroundColor: "#ff7a45",
+                              borderColor: "#ff7a45",
+                            }}
+                            onClick={() => recordStat("foul")}
+                          >
+                            Falta Personal
+                          </Button>
+                        )}
+                      </Space>
+                    </div>
+                  )}
+
+                  {/* Current Stats - Always show if available */}
+                  {statsModal.player?.stats && (
+                    <div style={{ marginTop: 24 }}>
+                      <Title level={5}>Estadísticas Actuales</Title>
+                      <Row gutter={[16, 16]}>
+                        <Col span={6}>
+                          <Statistic
+                            title="Puntos"
+                            value={statsModal.player.stats.puntos}
+                          />
+                        </Col>
+                        <Col span={6}>
+                          <Statistic
+                            title="Rebotes"
+                            value={statsModal.player.stats.rebotes}
+                          />
+                        </Col>
+                        <Col span={6}>
+                          <Statistic
+                            title="Asistencias"
+                            value={statsModal.player.stats.asistencias}
+                          />
+                        </Col>
+                        <Col span={6}>
+                          <Statistic
+                            title="Minutos"
+                            value={Math.floor(
+                              statsModal.player.stats.minutos / 60
+                            )}
+                          />
+                        </Col>
+                        <Col span={6}>
+                          <Statistic
+                            title="Robos"
+                            value={statsModal.player.stats.robos}
+                          />
+                        </Col>
+                        <Col span={6}>
+                          <Statistic
+                            title="Tapones"
+                            value={statsModal.player.stats.tapones}
+                          />
+                        </Col>
+                        <Col span={6}>
+                          <Statistic
+                            title="Faltas"
+                            value={statsModal.player.stats.faltasPersonales || 0}
+                          />
+                        </Col>
+                        <Col span={6}>
+                          <Statistic
+                            title="Pérdidas"
+                            value={statsModal.player.stats.perdidas || 0}
+                          />
+                        </Col>
+                        <Col span={12}>
+                          <Statistic
+                            title="Tiros de Campo"
+                            value={`${statsModal.player.stats.tirosAnotados}/${statsModal.player.stats.tirosIntentados}`}
+                            suffix={`(${Math.round(
+                              (statsModal.player.stats.tirosAnotados /
+                                statsModal.player.stats.tirosIntentados || 0) *
+                                100
+                            )}%)`}
+                          />
+                        </Col>
+                      </Row>
+                    </div>
+                  )}
+                </Space>
+              </div>
+            </Tabs.TabPane>
+          )}
         </Tabs>
       </Modal>
     </div>

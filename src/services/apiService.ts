@@ -1,15 +1,4 @@
-import axios from "axios";
-
-const BASE_URL = "http://localhost:4000/api";
-
-// Create axios instance with base configuration
-const api = axios.create({
-  baseURL: BASE_URL,
-  timeout: 10000,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
+import api from "../api/axios";
 
 // Game API functions
 export const gameAPI = {

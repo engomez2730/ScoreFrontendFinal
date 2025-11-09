@@ -19,7 +19,7 @@ import {
   RedoOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
-import axios from "axios";
+import api from "../api/axios";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 
 const { Title, Text } = Typography;
@@ -123,7 +123,9 @@ const GameDetailView: React.FC = () => {
   const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(
     null
   );
-  const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>({});
+  const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>(
+    {}
+  );
   const [lastTimerUpdate, setLastTimerUpdate] = useState<number>(Date.now());
   const QUARTER_LENGTH = 600; // 10 minutes in seconds
   const [statModal, setStatModal] = useState<{
@@ -176,13 +178,10 @@ const GameDetailView: React.FC = () => {
     if (!statModal.player || !game) return;
 
     try {
-      await axios.put(
-        `http://localhost:4000/api/games/${game.id}/player-stats`,
-        {
-          playerId: statModal.player.id,
-          stats: statInput,
-        }
-      );
+      await api.put(`/games/${game.id}/player-stats`, {
+        playerId: statModal.player.id,
+        stats: statInput,
+      });
 
       notification.success({
         message: "Estadísticas guardadas",
@@ -203,7 +202,7 @@ const GameDetailView: React.FC = () => {
     if (!game) return;
 
     try {
-      await axios.put(`http://localhost:4000/api/games/${game.id}/time`, {
+      await api.put(`/games/${game.id}/time`, {
         gameTime: seconds,
       });
     } catch (error) {
@@ -218,16 +217,16 @@ const GameDetailView: React.FC = () => {
       setGameTime((prev) => {
         const newTime = prev + 1;
         updateGameTime(newTime);
-        
+
         // Check if quarter ended (assuming 10 minutes = 600 seconds per quarter)
         if (newTime > 0 && newTime % QUARTER_LENGTH === 0) {
           console.log("Quarter ended at:", newTime);
           handleQuarterEnd();
         }
-        
+
         return newTime;
       });
-      
+
       // Update player minutes for all players currently on court
       updatePlayerMinutes();
     }, 1000);
@@ -240,26 +239,26 @@ const GameDetailView: React.FC = () => {
   // Update player minutes for all players currently on court
   const updatePlayerMinutes = () => {
     if (!homeTeam || !awayTeam) return;
-    
+
     const now = Date.now();
     const elapsed = now - lastTimerUpdate; // milliseconds since last update
-    
+
     setPlayerMinutes((prev) => {
       const updated = { ...prev };
-      
+
       // Add time for all players currently on court
       const onCourtPlayers = [
         ...getOnCourtPlayers(homeTeam),
         ...getOnCourtPlayers(awayTeam),
       ];
-      
+
       onCourtPlayers.forEach((player) => {
         updated[player.id] = (updated[player.id] || 0) + elapsed;
       });
-      
+
       return updated;
     });
-    
+
     setLastTimerUpdate(now);
   };
 
@@ -268,7 +267,9 @@ const GameDetailView: React.FC = () => {
     if (!game) return;
 
     try {
-      console.log("🏁 Quarter ended, saving stats and going to next quarter...");
+      console.log(
+        "🏁 Quarter ended, saving stats and going to next quarter..."
+      );
 
       // Save current stats before quarter ends (same logic as stopTimer)
       await savePlayerMinutesToBackend();
@@ -296,7 +297,8 @@ const GameDetailView: React.FC = () => {
     if (!game || !homeTeam || !awayTeam) {
       notification.error({
         message: "Error",
-        description: "No se pueden guardar las estadísticas: faltan datos del juego",
+        description:
+          "No se pueden guardar las estadísticas: faltan datos del juego",
       });
       return;
     }
@@ -314,7 +316,7 @@ const GameDetailView: React.FC = () => {
       });
 
       // Update all player minutes in a single bulk request
-      await axios.put(`http://localhost:4000/api/games/${game.id}/player-minutes`, playerMinutesPayload);
+      await api.put(`/games/${game.id}/player-minutes`, playerMinutesPayload);
 
       console.log("✅ Player minutes saved successfully");
     } catch (error) {
@@ -329,7 +331,7 @@ const GameDetailView: React.FC = () => {
       setTimerInterval(null);
     }
     setIsClockRunning(false);
-    
+
     // Save player minutes when timer stops
     try {
       await savePlayerMinutesToBackend();
@@ -352,9 +354,7 @@ const GameDetailView: React.FC = () => {
 
     if (game) {
       try {
-        await axios.post(
-          `http://localhost:4000/api/games/${game.id}/reset-time`
-        );
+        await api.post(`/games/${game.id}/reset-time`);
       } catch (error) {
         console.error("Error resetting game time:", error);
       }
@@ -366,7 +366,7 @@ const GameDetailView: React.FC = () => {
     if (!game) return;
 
     try {
-      await axios.put(`http://localhost:4000/api/games/${game.id}/score`, {
+      await api.put(`/games/${game.id}/score`, {
         homeScore,
         awayScore,
       });
@@ -393,14 +393,14 @@ const GameDetailView: React.FC = () => {
 
   const loadGameData = async () => {
     try {
-      const gameResponse = await axios.get(`http://localhost:4000/games/${id}`);
+      const gameResponse = await api.get(`/games/${id}`);
       const game = gameResponse.data;
       setGame(game);
 
       // Load both teams and their players
       const [homeTeamResponse, awayTeamResponse] = await Promise.all([
-        axios.get(`http://localhost:4000/teams/${game.teamHomeId}`),
-        axios.get(`http://localhost:4000/teams/${game.teamAwayId}`),
+        api.get(`/teams/${game.teamHomeId}`),
+        api.get(`/teams/${game.teamAwayId}`),
       ]);
 
       const homeTeam = {
@@ -422,14 +422,13 @@ const GameDetailView: React.FC = () => {
 
       setHomeTeam(homeTeam);
       setAwayTeam(awayTeam);
-      
+
       // Initialize player minutes for all players
       const initialPlayerMinutes: Record<number, number> = {};
       [...homeTeam.players, ...awayTeam.players].forEach((player) => {
         initialPlayerMinutes[player.id] = 0;
       });
       setPlayerMinutes(initialPlayerMinutes);
-      
     } catch (err) {
       notification.error({
         message: "Error",
@@ -492,10 +491,10 @@ const GameDetailView: React.FC = () => {
         fecha: game.fecha,
       };
 
-      await axios.put(`http://localhost:4000/games/${id}`, gameUpdateData);
+      await api.put(`/games/${id}`, gameUpdateData);
 
       // First, set the starters using the proper endpoint
-      await axios.post(`http://localhost:4000/api/games/${id}/set-starters`, {
+      await api.post(`/games/${id}/set-starters`, {
         homeStarters: selectedPlayers.home,
         awayStarters: selectedPlayers.away,
       });
@@ -511,7 +510,7 @@ const GameDetailView: React.FC = () => {
           playerOutId: null,
           timestamp,
         };
-        await axios.post("http://localhost:4000/substitutions", substitution);
+        await api.post("/substitutions", substitution);
       }
 
       // Process away team starters
@@ -522,7 +521,7 @@ const GameDetailView: React.FC = () => {
           playerOutId: null,
           timestamp,
         };
-        await axios.post("http://localhost:4000/substitutions", substitution);
+        await api.post("/substitutions", substitution);
       }
 
       // Update local state
@@ -555,7 +554,7 @@ const GameDetailView: React.FC = () => {
 
       // Start the game timer automatically
       startTimer();
-      
+
       // Initialize timer tracking
       setLastTimerUpdate(Date.now());
 
