@@ -8,13 +8,24 @@ export interface LoginCredentials {
 export interface RegisterData {
   email: string;
   password: string;
-  confirmPassword: string;
+  confirmPassword?: string;
   nombre: string;
-  apellido?: string;
-  rol?: 'USER' | 'ADMIN' | 'SCORER' | 'REBOUNDER_ASSISTS' | 'STEALS_BLOCKS' | 'ALL_AROUND';
+  rol:
+    | "USER"
+    | "ADMIN"
+    | "SCORER"
+    | "REBOUNDER_ASSISTS"
+    | "STEALS_BLOCKS"
+    | "ALL_AROUND";
 }
 
-export type UserRole = 'USER' | 'ADMIN' | 'SCORER' | 'REBOUNDER_ASSISTS' | 'STEALS_BLOCKS' | 'ALL_AROUND';
+export type UserRole =
+  | "USER"
+  | "ADMIN"
+  | "SCORER"
+  | "REBOUNDER_ASSISTS"
+  | "STEALS_BLOCKS"
+  | "ALL_AROUND";
 
 export interface User {
   id: number;
@@ -114,7 +125,16 @@ const authService = {
 
   // Register new user
   register: async (userData: RegisterData): Promise<AuthResponse> => {
-    const response = await api.post("/auth/register", userData);
+    // Enviar solo los campos que el backend espera
+    const { nombre, email, password, rol } = userData;
+    const response = await api.post("/auth/register", {
+      nombre,
+      email,
+      password,
+      rol,
+    });
+
+    console.log("📝 Registration response:", response);
     const { token, user } = response.data;
 
     // Store token and user data

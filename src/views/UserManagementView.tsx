@@ -33,7 +33,6 @@ interface CreateUserData {
   email: string;
   password: string;
   nombre: string;
-  apellido?: string;
   rol: UserRole;
 }
 
@@ -52,11 +51,19 @@ const UserManagementView: React.FC = () => {
   const loadUsers = async () => {
     try {
       setLoading(true);
-      const response = await api.get("/admin/users");
-      setUsers(response.data);
-    } catch (error) {
+      const response = await api.get("/users");
+      // El backend retorna { success: true, data: [...], count: number }
+      setUsers(response.data.data || response.data);
+    } catch (error: any) {
       console.error("Error loading users:", error);
-      message.error("Error al cargar usuarios");
+      if (error?.response?.status === 404) {
+        message.warning("Endpoint /users no disponible. Usando datos de sesión.");
+        setUsers([]);
+      } else if (error?.response?.status === 401) {
+        message.error("No tienes permisos para ver usuarios. Inicia sesión nuevamente.");
+      } else {
+        message.error("Error al cargar usuarios");
+      }
     } finally {
       setLoading(false);
     }
@@ -64,16 +71,23 @@ const UserManagementView: React.FC = () => {
 
   const handleCreateUser = async (values: CreateUserData) => {
     try {
-      const userData = {
-        ...values,
-        confirmPassword: values.password, // Backend expects confirmPassword
-      };
-
       if (editingUser) {
-        await api.put(`/admin/users/${editingUser.id}`, userData);
+        // Para edición, necesitaríamos un endpoint diferente
+        const userData = {
+          ...values,
+          confirmPassword: values.password,
+        };
+        await api.put(`/users/${editingUser.id}`, userData);
         message.success("Usuario actualizado correctamente");
       } else {
-        await api.post("/admin/users", userData);
+        // Para crear usuario, usar /auth/register
+        const userData = {
+          nombre: values.nombre,
+          email: values.email,
+          password: values.password,
+          rol: values.rol,
+        };
+        await api.post("/auth/register", userData);
         message.success("Usuario creado correctamente");
       }
 
@@ -81,9 +95,23 @@ const UserManagementView: React.FC = () => {
       setEditingUser(null);
       form.resetFields();
       loadUsers();
-    } catch (error: unknown) {
+    } catch (error: any) {
       console.error("Error creating/updating user:", error);
-      message.error("Error al guardar usuario");
+      
+      // Manejo detallado de errores
+      if (error?.response?.data?.message) {
+        message.error(error.response.data.message);
+      } else if (error?.response?.status === 404) {
+        message.error("Endpoint no encontrado. Verifica que el backend esté ejecutándose.");
+      } else if (error?.response?.status === 409) {
+        message.error("Este correo electrónico ya está registrado.");
+      } else if (error?.response?.status === 400) {
+        message.error("Datos inválidos. Por favor revisa el formulario.");
+      } else if (error?.code === "ERR_NETWORK" || error?.message?.includes("Network Error")) {
+        message.error("No se puede conectar al servidor. Verifica que el backend esté ejecutándose en el puerto 4000.");
+      } else {
+        message.error("Error al guardar usuario");
+      }
     }
   };
 
@@ -92,7 +120,6 @@ const UserManagementView: React.FC = () => {
     form.setFieldsValue({
       email: user.email,
       nombre: user.nombre,
-      apellido: user.apellido || "",
       rol: user.rol,
       password: "", // Don't pre-fill password
     });
@@ -101,12 +128,16 @@ const UserManagementView: React.FC = () => {
 
   const handleDeleteUser = async (userId: number) => {
     try {
-      await api.delete(`/admin/users/${userId}`);
+      await api.delete(`/users/${userId}`);
       message.success("Usuario eliminado correctamente");
       loadUsers();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting user:", error);
-      message.error("Error al eliminar usuario");
+      if (error?.response?.status === 404) {
+        message.error("Endpoint de eliminación no disponible.");
+      } else {
+        message.error("Error al eliminar usuario");
+      }
     }
   };
 
@@ -178,7 +209,7 @@ const UserManagementView: React.FC = () => {
           <UserOutlined />
           <div>
             <div>
-              {record.nombre} {record.apellido}
+              {record.nombre}
             </div>
             <div style={{ color: "#666", fontSize: "12px" }}>
               {record.email}
@@ -256,15 +287,6 @@ const UserManagementView: React.FC = () => {
                 Administra usuarios del sistema. Solo accesible para
                 Administradores.
               </p>
-              {currentUser?.rol === "ADMIN" && (
-                <Alert
-                  message="Permisos de Administrador"
-                  description="Como ADMIN, puedes gestionar todos los usuarios y roles del sistema."
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                />
-              )}
             </div>
             <Button
               type="primary"
@@ -319,20 +341,13 @@ const UserManagementView: React.FC = () => {
 
           <Form.Item
             name="nombre"
-            label="Nombre"
+            label="Nombre Completo"
             rules={[
               { required: true, message: "El nombre es requerido" },
               { min: 2, message: "Mínimo 2 caracteres" },
             ]}
           >
-            <Input prefix={<UserOutlined />} placeholder="Nombre" />
-          </Form.Item>
-
-          <Form.Item name="apellido" label="Apellido">
-            <Input
-              prefix={<UserOutlined />}
-              placeholder="Apellido (opcional)"
-            />
+            <Input prefix={<UserOutlined />} placeholder="Juan Pérez" />
           </Form.Item>
 
           <Form.Item

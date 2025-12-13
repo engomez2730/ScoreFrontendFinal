@@ -103,12 +103,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const response = await authService.login(credentials);
       setUser(response.user);
-      message.success("¡Inicio de sesión exitoso!");
       return true;
     } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Error al iniciar sesión";
-      message.error(errorMessage);
+      // Check if it's a connection error
+      if (
+        (error instanceof Error &&
+          error.message.includes("ERR_CONNECTION_REFUSED")) ||
+        (error instanceof Error && error.message.includes("Network Error")) ||
+        (error as { code?: string })?.code === "ERR_NETWORK"
+      ) {
+        throw new Error("CONNECTION_ERROR");
+      }
       return false;
     }
   };
@@ -117,13 +122,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const response = await authService.register(userData);
       setUser(response.user);
-      message.success("¡Registro exitoso! Bienvenido.");
       return true;
     } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Error al registrarse";
-      message.error(errorMessage);
-      return false;
+      // Check if it's a connection error
+      if (
+        (error instanceof Error &&
+          error.message.includes("ERR_CONNECTION_REFUSED")) ||
+        (error instanceof Error && error.message.includes("Network Error")) ||
+        (error as { code?: string })?.code === "ERR_NETWORK"
+      ) {
+        throw new Error("CONNECTION_ERROR");
+      }
+      // Re-throw the error so RegisterView can handle it
+      throw error;
     }
   };
 
@@ -190,21 +201,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const hasPermission = (permission: keyof GamePermissions): boolean => {
     // Game creator has all permissions
     if (isGameCreator) return true;
-    
+
     // Admin has all permissions
     if (user?.rol === "ADMIN") return true;
-    
+
     // If game permissions are loaded, use them
     if (currentGamePermissions) {
       return currentGamePermissions[permission];
     }
-    
+
     // If no game permissions are loaded yet, check default role permissions
     if (user?.rol) {
-      const defaultPermissions = permissionService.getDefaultPermissions(user.rol);
+      const defaultPermissions = permissionService.getDefaultPermissions(
+        user.rol
+      );
       return defaultPermissions[permission] || false;
     }
-    
+
     return false;
   };
 

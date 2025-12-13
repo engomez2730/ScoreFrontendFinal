@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Form, Input, Button, Card, Typography, Divider } from "antd";
+import { Form, Input, Button, Card, Typography, Divider, message } from "antd";
 import { LockOutlined, MailOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
@@ -19,6 +19,13 @@ const LoginView: React.FC = () => {
       const success = await login(values);
       if (success) {
         navigate("/"); // Redirect to home page after successful login
+      }
+    } catch (error) {
+      // Only show error messages for connection issues
+      if (error instanceof Error && error.message === "CONNECTION_ERROR") {
+        message.error(
+          "No se puede conectar al servidor. Verifica que el backend esté ejecutándose en el puerto 4000."
+        );
       }
     } finally {
       setLoading(false);
@@ -46,7 +53,7 @@ const LoginView: React.FC = () => {
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <Title level={2} style={{ marginBottom: 8, color: "#1890ff" }}>
-            Basketball Stats
+            NextPlay🏀
           </Title>
           <Text type="secondary">Inicia sesión para continuar</Text>
         </div>

@@ -222,6 +222,11 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     playerOut: null,
   });
 
+  // Fullscreen mode for mobile
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showBenchInFullscreen, setShowBenchInFullscreen] = useState(false);
+  const isMobile = window.innerWidth < 768;
+
   // Get 5 on-court and bench players for each team
   const getOnCourtPlayers = (team: Team) => {
     return team.players.filter((p) => p.isOnCourt);
@@ -244,10 +249,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   };
 
   // Handle stats modal
-  const openStatsModal = (
-    player: Player,
-    activeTab?: "shots" | "other"
-  ) => {
+  const openStatsModal = (player: Player, activeTab?: "shots" | "other") => {
     console.log("Opening stats modal for player:", player);
     console.log("Player on court:", player.isOnCourt);
 
@@ -262,10 +264,14 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
     // Determine the default tab based on user permissions
     let defaultTab: "shots" | "other";
-    
+
     if (!activeTab) {
       // If user can edit shots/points/free throws, default to shots tab
-      if (hasPermission("canEditShots") || hasPermission("canEditPoints") || hasPermission("canEditFreeThrows")) {
+      if (
+        hasPermission("canEditShots") ||
+        hasPermission("canEditPoints") ||
+        hasPermission("canEditFreeThrows")
+      ) {
         defaultTab = "shots";
       }
       // Otherwise, default to other stats tab
@@ -1194,10 +1200,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   useEffect(() => {
     const initializeGame = async () => {
       if (id && user) {
-        console.log('🎮 Initializing game for user:', user.rol, 'Game ID:', id);
+        console.log("🎮 Initializing game for user:", user.rol, "Game ID:", id);
         // First join the game to get permissions
         const joinResult = await joinGame(Number(id));
-        console.log('🎮 Join game result:', joinResult);
+        console.log("🎮 Join game result:", joinResult);
         // Then load game data
         loadGameData();
       }
@@ -1712,7 +1718,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   </div>
                 </Space>
               )}
-              {game.estado === "in_progress" && user?.rol === 'ADMIN' && (
+              {game.estado === "in_progress" && user?.rol === "ADMIN" && (
                 <div style={{ textAlign: "center" }}>
                   <Title
                     level={1}
@@ -1743,31 +1749,52 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   </Button>
 
                   {/* Debug section for permissions - Only for ADMIN users */}
-                  {user?.rol === 'ADMIN' && (
-                    <div style={{ 
-                      marginTop: 16, 
-                      padding: 8, 
-                      background: '#f0f0f0', 
-                      borderRadius: 4,
-                      fontSize: 12 
-                    }}>
-                      <div><strong>Debug Info:</strong></div>
+                  {user?.rol === "ADMIN" && (
+                    <div
+                      style={{
+                        marginTop: 16,
+                        padding: 8,
+                        background: "#f0f0f0",
+                        borderRadius: 4,
+                        fontSize: 12,
+                      }}
+                    >
+                      <div>
+                        <strong>Debug Info:</strong>
+                      </div>
                       <div>User Role: {user?.rol}</div>
-                      <div>Timer Running: {isClockRunning ? 'YES' : 'NO'}</div>
+                      <div>Timer Running: {isClockRunning ? "YES" : "NO"}</div>
                       <div>Can Add Stats: YES (allowed anytime)</div>
                       <div>Can Substitute: YES (allowed anytime)</div>
-                      <div>Has canControlTime: {hasPermission('canControlTime') ? 'YES' : 'NO'}</div>
-                      <div>Current Permissions: {currentGamePermissions ? 'LOADED' : 'NOT LOADED (using defaults)'}</div>
+                      <div>
+                        Has canControlTime:{" "}
+                        {hasPermission("canControlTime") ? "YES" : "NO"}
+                      </div>
+                      <div>
+                        Current Permissions:{" "}
+                        {currentGamePermissions
+                          ? "LOADED"
+                          : "NOT LOADED (using defaults)"}
+                      </div>
                       {currentGamePermissions && (
-                        <div>canControlTime: {currentGamePermissions.canControlTime ? 'TRUE' : 'FALSE'}</div>
+                        <div>
+                          canControlTime:{" "}
+                          {currentGamePermissions.canControlTime
+                            ? "TRUE"
+                            : "FALSE"}
+                        </div>
                       )}
                       {!currentGamePermissions && user?.rol && (
-                        <div>Default canControlTime for {user.rol}: {
-                          (() => {
-                            const defaultPerms = permissionService.getDefaultPermissions(user.rol);
-                            return defaultPerms.canControlTime ? 'TRUE' : 'FALSE';
-                          })()
-                        }</div>
+                        <div>
+                          Default canControlTime for {user.rol}:{" "}
+                          {(() => {
+                            const defaultPerms =
+                              permissionService.getDefaultPermissions(user.rol);
+                            return defaultPerms.canControlTime
+                              ? "TRUE"
+                              : "FALSE";
+                          })()}
+                        </div>
                       )}
                     </div>
                   )}
@@ -1870,13 +1897,58 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         <div
           style={{
             width: "100%",
-            maxWidth: 1200,
+            maxWidth: isFullscreen ? "100vw" : 1200,
             margin: "0 auto",
-            padding: 24,
+            padding: isFullscreen ? 8 : 24,
+            position: isFullscreen ? "fixed" : "relative",
+            top: isFullscreen ? 0 : "auto",
+            left: isFullscreen ? 0 : "auto",
+            right: isFullscreen ? 0 : "auto",
+            bottom: isFullscreen ? 0 : "auto",
+            zIndex: isFullscreen ? 1000 : "auto",
+            backgroundColor: isFullscreen ? "#fff" : "transparent",
+            overflowY: isFullscreen ? "auto" : "visible",
           }}
         >
+          {/* Fullscreen toggle button for mobile */}
+          {isMobile && (
+            <div style={{ 
+              display: "flex", 
+              justifyContent: "space-between", 
+              alignItems: "center",
+              marginBottom: 8,
+              padding: "8px 12px",
+              backgroundColor: isFullscreen ? "#f0f0f0" : "transparent",
+              borderRadius: 8,
+            }}>
+              {isFullscreen && (
+                <div style={{ 
+                  display: "flex", 
+                  justifyContent: "space-around", 
+                  flex: 1,
+                  fontSize: 16,
+                  fontWeight: "bold",
+                }}>
+                  <span>{game.teamHome.nombre} {homeTeam?.score || 0}</span>
+                  <span>-</span>
+                  <span>{awayTeam?.score || 0} {game.teamAway.nombre}</span>
+                </div>
+              )}
+              <Button
+                size="small"
+                type={isFullscreen ? "default" : "primary"}
+                onClick={() => setIsFullscreen(!isFullscreen)}
+              >
+                {isFullscreen ? "✕" : "⛶"}
+              </Button>
+            </div>
+          )}
           {/* Court */}
-          <div style={courtStyle}>
+          <div style={{
+            ...courtStyle,
+            height: isFullscreen ? "calc(100vh - 300px)" : isMobile ? "50vh" : "60vh",
+            margin: isFullscreen ? "8px 0" : "32px 0",
+          }}>
             {/* Home team on left, away team on right */}
             <div
               style={{
@@ -1891,9 +1963,12 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   key={p.id}
                   style={{
                     ...playerCircle,
+                    width: isMobile ? 60 : 80,
+                    height: isMobile ? 60 : 80,
                     background: "#1890ff",
                     color: "white",
                     border: "3px solid #fff",
+                    fontSize: isMobile ? 12 : 16,
                   }}
                   onClick={(e) => {
                     if (e.shiftKey || substitutionState.isSelecting) {
@@ -1949,9 +2024,12 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   key={p.id}
                   style={{
                     ...playerCircle,
+                    width: isMobile ? 60 : 80,
+                    height: isMobile ? 60 : 80,
                     background: "#f5222d",
                     color: "white",
                     border: "3px solid #fff",
+                    fontSize: isMobile ? 12 : 16,
                   }}
                   onClick={(e) => {
                     if (e.shiftKey || substitutionState.isSelecting) {
@@ -1971,9 +2049,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             </div>
           </div>
           {/* Benches */}
-          <Row gutter={24} style={{ marginTop: 24 }}>
-            <Col span={12}>
-              <Title level={5}>Banca {homeTeam.nombre}</Title>
+          {(!isFullscreen || showBenchInFullscreen || !isMobile) && (
+            <Row gutter={[16, 16]} style={{ marginTop: isFullscreen ? 12 : 24 }}>
+              <Col xs={24} md={12}>
+                <Title level={5} style={{ fontSize: isMobile ? 14 : 16 }}>Banca {homeTeam.nombre}</Title>
               <div style={benchStyle}>
                 {getBenchPlayers(homeTeam).map((p) => (
                   <div
@@ -2017,8 +2096,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                 ))}
               </div>
             </Col>
-            <Col span={12}>
-              <Title level={5}>Banca {awayTeam.nombre}</Title>
+            <Col xs={24} md={12}>
+              <Title level={5} style={{ fontSize: isMobile ? 14 : 16 }}>Banca {awayTeam.nombre}</Title>
               <div style={benchStyle}>
                 {getBenchPlayers(awayTeam).map((p) => (
                   <div
@@ -2063,6 +2142,19 @@ const GameDetailView: React.FC = (): React.ReactNode => {
               </div>
             </Col>
           </Row>
+          )}
+          
+          {/* Toggle bench button for fullscreen mobile */}
+          {isFullscreen && isMobile && (
+            <div style={{ textAlign: "center", marginTop: 12 }}>
+              <Button
+                size="small"
+                onClick={() => setShowBenchInFullscreen(!showBenchInFullscreen)}
+              >
+                {showBenchInFullscreen ? "Ocultar Banca" : "Mostrar Banca"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -2332,7 +2424,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           }
         >
           {/* Shots Tab - Show for SCORER, ALL_AROUND, and ADMIN */}
-          {(hasPermission("canEditShots") || hasPermission("canEditPoints") || hasPermission("canEditFreeThrows")) && (
+          {(hasPermission("canEditShots") ||
+            hasPermission("canEditPoints") ||
+            hasPermission("canEditFreeThrows")) && (
             <Tabs.TabPane tab="Tiros" key="shots">
               <div style={{ textAlign: "center", padding: "20px 0" }}>
                 {/* 2-Point Field Goals */}
@@ -2429,9 +2523,12 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           )}
 
           {/* Other Stats Tab - Show sections based on permissions */}
-          {(hasPermission("canEditRebounds") || hasPermission("canEditAssists") || 
-            hasPermission("canEditSteals") || hasPermission("canEditBlocks") || 
-            hasPermission("canEditTurnovers") || hasPermission("canEditPersonalFouls")) && (
+          {(hasPermission("canEditRebounds") ||
+            hasPermission("canEditAssists") ||
+            hasPermission("canEditSteals") ||
+            hasPermission("canEditBlocks") ||
+            hasPermission("canEditTurnovers") ||
+            hasPermission("canEditPersonalFouls")) && (
             <Tabs.TabPane tab="Otras Estadísticas" key="other">
               <div style={{ textAlign: "center", padding: "20px 0" }}>
                 <Space
@@ -2440,7 +2537,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   style={{ width: "100%" }}
                 >
                   {/* Rebounds and Assists - Show for REBOUNDER_ASSISTS, ALL_AROUND, ADMIN */}
-                  {(hasPermission("canEditRebounds") || hasPermission("canEditAssists")) && (
+                  {(hasPermission("canEditRebounds") ||
+                    hasPermission("canEditAssists")) && (
                     <div>
                       <Title level={5}>Rebotes y Asistencias</Title>
                       <Space>
@@ -2469,7 +2567,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   )}
 
                   {/* Defense - Show for STEALS_BLOCKS, ALL_AROUND, ADMIN */}
-                  {(hasPermission("canEditSteals") || hasPermission("canEditBlocks")) && (
+                  {(hasPermission("canEditSteals") ||
+                    hasPermission("canEditBlocks")) && (
                     <div>
                       <Title level={5}>Defensa</Title>
                       <Space>
@@ -2498,7 +2597,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   )}
 
                   {/* Errors - Show for REBOUNDER_ASSISTS (turnovers), ALL_AROUND, ADMIN */}
-                  {(hasPermission("canEditTurnovers") || hasPermission("canEditPersonalFouls")) && (
+                  {(hasPermission("canEditTurnovers") ||
+                    hasPermission("canEditPersonalFouls")) && (
                     <div>
                       <Title level={5}>Errores</Title>
                       <Space>
@@ -2576,7 +2676,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                         <Col span={6}>
                           <Statistic
                             title="Faltas"
-                            value={statsModal.player.stats.faltasPersonales || 0}
+                            value={
+                              statsModal.player.stats.faltasPersonales || 0
+                            }
                           />
                         </Col>
                         <Col span={6}>

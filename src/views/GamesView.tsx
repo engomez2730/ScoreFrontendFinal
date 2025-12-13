@@ -501,38 +501,163 @@ const GamesView: React.FC = () => {
   };
 
   return (
-    <div>
-      <Space
+    <div style={{ padding: "0 16px" }}>
+      <div
         style={{
           marginBottom: 16,
+          display: "flex",
+          flexDirection: window.innerWidth < 768 ? "column" : "row",
           justifyContent: "space-between",
-          width: "100%",
+          alignItems: window.innerWidth < 768 ? "stretch" : "center",
+          gap: 12,
         }}
       >
-        <Title level={2}>Juegos</Title>
+        <Title level={2} style={{ margin: 0 }}>
+          Juegos
+        </Title>
         <Button
           type="primary"
           icon={<PlusOutlined />}
           onClick={showCreateModal}
+          block={window.innerWidth < 768}
         >
           Nuevo Juego
         </Button>
-      </Space>
+      </div>
 
-      <Table
-        columns={getTableColumns()}
-        dataSource={games}
-        loading={loading}
-        rowKey="id"
-        scroll={{ x: 1200 }}
-        pagination={{
-          pageSize: 10,
-          showSizeChanger: true,
-          showQuickJumper: true,
-          showTotal: (total, range) =>
-            `${range[0]}-${range[1]} de ${total} juegos`,
-        }}
-      />
+      {/* Mobile View - Card Layout */}
+      {window.innerWidth < 768 ? (
+        <List
+          loading={loading}
+          dataSource={games}
+          renderItem={(game: Game) => (
+            <List.Item style={{ padding: 0, marginBottom: 16, border: "none" }}>
+              <div
+                style={{
+                  width: "100%",
+                  border: "1px solid #f0f0f0",
+                  borderRadius: 8,
+                  padding: 16,
+                  backgroundColor: "#fff",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 12,
+                  }}
+                >
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    #{game.id} - {new Date(game.fecha).toLocaleDateString()}
+                  </Text>
+                  {getStatusTag(game.estado)}
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <div
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 600,
+                      marginBottom: 4,
+                    }}
+                  >
+                    {game.teamHome?.nombre || "N/A"}
+                  </div>
+                  <div style={{ textAlign: "center", margin: "8px 0" }}>
+                    {game.scoreHome !== undefined ? (
+                      <Text
+                        strong
+                        style={{ fontSize: 20, color: "#1890ff" }}
+                      >
+                        {game.scoreHome} - {game.scoreAway}
+                      </Text>
+                    ) : (
+                      <Text type="secondary">vs</Text>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 600 }}>
+                    {game.teamAway?.nombre || "N/A"}
+                  </div>
+                </div>
+
+                {game.event && (
+                  <div style={{ marginBottom: 12 }}>
+                    <Tag color="blue">{game.event.nombre}</Tag>
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 8,
+                  }}
+                >
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<EyeOutlined />}
+                    onClick={() => navigate(`/games/${game.id}`)}
+                    block
+                  >
+                    Detalles
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<BarChartOutlined />}
+                    onClick={() => navigate(`/games/${game.id}/stats`)}
+                    block
+                  >
+                    Stats
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => showEditModal(game)}
+                    block
+                  >
+                    Editar
+                  </Button>
+                  <Popconfirm
+                    title="¿Eliminar juego?"
+                    description="No se puede deshacer"
+                    onConfirm={() => handleDeleteGame(game.id)}
+                    okText="Sí"
+                    cancelText="No"
+                  >
+                    <Button size="small" danger icon={<DeleteOutlined />} block>
+                      Eliminar
+                    </Button>
+                  </Popconfirm>
+                </div>
+              </div>
+            </List.Item>
+          )}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: false,
+            simple: true,
+          }}
+        />
+      ) : (
+        /* Desktop View - Table Layout */
+        <Table
+          columns={getTableColumns()}
+          dataSource={games}
+          loading={loading}
+          rowKey="id"
+          scroll={{ x: 1200 }}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            showTotal: (total, range) =>
+              `${range[0]}-${range[1]} de ${total} juegos`,
+          }}
+        />
+      )}
 
       <Modal
         title={editingGame ? "Editar Juego" : "Nuevo Juego"}
@@ -544,7 +669,9 @@ const GamesView: React.FC = () => {
           }
         }}
         footer={null}
-        width={editingGame ? 600 : 900}
+        width={window.innerWidth < 768 ? "100%" : editingGame ? 600 : 900}
+        style={window.innerWidth < 768 ? { top: 20, maxWidth: "calc(100vw - 32px)" } : {}}
+        bodyStyle={window.innerWidth < 768 ? { padding: "16px" } : {}}
       >
         {editingGame ? (
           // Editing existing game - show simple form
@@ -767,8 +894,8 @@ const GamesView: React.FC = () => {
                     jugadores para agregarlos al quinteto inicial.
                   </Text>
 
-                  <Row gutter={24}>
-                    <Col span={12}>
+                  <Row gutter={[16, 16]}>
+                    <Col xs={24} md={12}>
                       <div style={{ marginBottom: 16 }}>
                         <Title level={5}>
                           {selectedTeams.home.nombre} (Local)
@@ -834,7 +961,7 @@ const GamesView: React.FC = () => {
                         )}
                       />
                     </Col>
-                    <Col span={12}>
+                    <Col xs={24} md={12}>
                       <div style={{ marginBottom: 16 }}>
                         <Title level={5}>
                           {selectedTeams.away.nombre} (Visitante)
@@ -902,8 +1029,14 @@ const GamesView: React.FC = () => {
                     </Col>
                   </Row>
 
-                  <div style={{ marginTop: 24, textAlign: "center" }}>
-                    <Space>
+                  <div style={{ marginTop: 24 }}>
+                    <Space
+                      style={{
+                        width: "100%",
+                        justifyContent: "center",
+                        flexWrap: "wrap",
+                      }}
+                    >
                       <Button onClick={() => setCreateGameStep(0)}>
                         Atrás
                       </Button>
@@ -915,7 +1048,7 @@ const GamesView: React.FC = () => {
                         }
                         onClick={handleLineupComplete}
                       >
-                        Crear Juego con Quintetos
+                        Crear Juego
                       </Button>
                       <Button onClick={() => setModalVisible(false)}>
                         Cancelar
