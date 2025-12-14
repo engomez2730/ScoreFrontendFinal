@@ -25,6 +25,7 @@ import gameService from "../api/gameService";
 import permissionService from "../api/permissionService";
 import api from "../api/axios";
 import { useAuth } from "../contexts/AuthContext";
+import socketService from "../api/socketService";
 
 const { Title, Text } = Typography;
 
@@ -418,6 +419,14 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           isSelecting: false,
           selectedTeam: null,
           playerOut: null,
+        });
+
+        // Emit socket event to notify other users
+        socketService.makeSubstitution({
+          gameId: Number(game.id),
+          playerInId: playerIn.id,
+          playerOutId: substitutionState.playerOut.id,
+          timestamp: new Date().toISOString(),
         });
 
         // Refresh game data to ensure consistency with backend
@@ -1201,6 +1210,21 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     const initializeGame = async () => {
       if (id && user) {
         console.log("🎮 Initializing game for user:", user.rol, "Game ID:", id);
+        
+        // Connect to socket
+        socketService.connect();
+        socketService.joinGame(Number(id));
+        
+        // Listen for substitution events from other users
+        socketService.onSubstitutionMade((substitutionData) => {
+          console.log("🔄 Substitution event received:", substitutionData);
+          
+          // Reload game data to get updated player states
+          loadGameData();
+          
+          message.info("Sustitución realizada por otro usuario", 2);
+        });
+        
         // First join the game to get permissions
         const joinResult = await joinGame(Number(id));
         console.log("🎮 Join game result:", joinResult);
@@ -1213,12 +1237,14 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
     // Cleanup function to clear any running timers when component unmounts or ID changes
     return () => {
-      console.log("Component cleanup: clearing timer interval");
+      console.log("Component cleanup: clearing timer interval and socket listeners");
       if (timerInterval) {
         clearInterval(timerInterval);
         setTimerInterval(null);
         setIsClockRunning(false);
       }
+      // Clean up socket listeners
+      socketService.removeAllListeners();
     };
   }, [id, user]); // Added user dependency
 

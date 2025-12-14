@@ -53,7 +53,10 @@ const UserManagementView: React.FC = () => {
       setLoading(true);
       const response = await api.get("/users");
       // El backend retorna { success: true, data: [...], count: number }
-      setUsers(response.data.data || response.data);
+      const allUsers = response.data.data || response.data;
+      // Filtrar solo usuarios activos
+      const activeUsers = allUsers.filter((user: User) => user.isActive !== false);
+      setUsers(activeUsers);
     } catch (error: any) {
       console.error("Error loading users:", error);
       if (error?.response?.status === 404) {
@@ -128,13 +131,23 @@ const UserManagementView: React.FC = () => {
 
   const handleDeleteUser = async (userId: number) => {
     try {
-      await api.delete(`/users/${userId}`);
+      console.log("🗑️ Deleting user with ID:", userId);
+      const response = await api.delete(`/users/${userId}`);
+      console.log("✅ Delete response:", response);
       message.success("Usuario eliminado correctamente");
       loadUsers();
     } catch (error: any) {
-      console.error("Error deleting user:", error);
+      console.error("❌ Error deleting user:", error);
+      console.error("Error response:", error?.response);
+      console.error("Error status:", error?.response?.status);
+      console.error("Error data:", error?.response?.data);
+      
       if (error?.response?.status === 404) {
-        message.error("Endpoint de eliminación no disponible.");
+        message.error("Usuario no encontrado.");
+      } else if (error?.response?.status === 403) {
+        message.error("No tienes permisos para eliminar este usuario.");
+      } else if (error?.response?.data?.error) {
+        message.error(error.response.data.error);
       } else {
         message.error("Error al eliminar usuario");
       }

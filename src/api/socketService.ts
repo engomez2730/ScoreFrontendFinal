@@ -1,6 +1,6 @@
 import { io, Socket } from "socket.io-client";
-import { PlayerGameStats } from "./playerService";
-import { Substitution } from "./substitutionService";
+import type { PlayerGameStats } from "./playerService";
+import type { Substitution } from "./substitutionService";
 
 export interface ClockEvent {
   gameId: number;
@@ -11,7 +11,26 @@ class SocketService {
   private socket: Socket | null = null;
 
   connect() {
-    this.socket = io("http://localhost:4000");
+    // Get auth token from cookies
+    const getToken = (): string | null => {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; auth_token=`);
+      if (parts.length === 2) {
+        return parts.pop()?.split(";").shift() || null;
+      }
+      return null;
+    };
+
+    const token = getToken();
+    
+    this.socket = io("http://localhost:4000", {
+      auth: {
+        token: token
+      }
+    });
+    
+    console.log("🔌 Socket connected with auth token:", token ? "✓" : "✗");
+    
     return this.socket;
   }
 

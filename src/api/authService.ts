@@ -33,6 +33,7 @@ export interface User {
   nombre: string;
   apellido?: string;
   rol: UserRole;
+  isActive?: boolean;
   createdAt: string;
 }
 
