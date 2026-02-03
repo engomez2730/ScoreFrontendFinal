@@ -64,7 +64,7 @@ const PlayersView: React.FC = () => {
 
   const fetchTeams = async () => {
     try {
-      console.log("Loading teams from:", "http://localhost:4000/api/teams");
+      console.log("Loading teams from:", "https://quizbackendfinal-production.up.railway.app/api/teams");
       const response = await teamAPI.getTeams();
       console.log("Teams response:", response);
       setTeams(response.data);
@@ -81,7 +81,7 @@ const PlayersView: React.FC = () => {
   const fetchPlayers = async () => {
     setLoading(true);
     try {
-      console.log("Loading players from:", "http://localhost:4000/api/players");
+      console.log("Loading players from:", "https://quizbackendfinal-production.up.railway.app/api/players");
       const response = await playerAPI.getPlayers();
       console.log("Fetched players:", response.data); // Debug log
       setPlayers(response.data);

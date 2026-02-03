@@ -26,6 +26,7 @@ import {
   UserOutlined,
 } from "@ant-design/icons";
 import { io, Socket } from "socket.io-client";
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'https://quizbackendfinal-production.up.railway.app';
 import axios from "axios";
 import type { CheckboxChangeEvent } from 'antd/es/checkbox';
 
@@ -94,7 +95,7 @@ const GameDetailView: React.FC = () => {
   }, [id]);
 
   const initializeSocket = () => {
-    const newSocket = io('http://localhost:4000');
+    const newSocket = io(API_BASE);
     newSocket.on('connect', () => {
       console.log('Connected to game server');
       if (id) {
@@ -115,14 +116,14 @@ const GameDetailView: React.FC = () => {
 
   const loadGameData = async () => {
     try {
-      const gameResponse = await axios.get(`http://localhost:4000/games/${id}`);
+      const gameResponse = await axios.get(`${API_BASE}/games/${id}`);
       const game = gameResponse.data;
       setGame(game);
 
       // Load both teams and their players
       const [homeTeamResponse, awayTeamResponse] = await Promise.all([
-        axios.get(`http://localhost:4000/teams/${game.teamHomeId}`),
-        axios.get(`http://localhost:4000/teams/${game.teamAwayId}`)
+        axios.get(`${API_BASE}/teams/${game.teamHomeId}`),
+        axios.get(`${API_BASE}/teams/${game.teamAwayId}`)
       ]);
 
       const homeTeam = {
@@ -184,7 +185,7 @@ const GameDetailView: React.FC = () => {
 
     try {
       // Update game state to "en_progreso"
-      await axios.put(`http://localhost:4000/games/${id}`, {
+      await axios.put(`${API_BASE}/games/${id}`, {
         estado: "en_progreso",
         initialLineup: {
           home: selectedPlayers.home,

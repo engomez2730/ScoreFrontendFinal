@@ -61,7 +61,7 @@ const TeamsView: React.FC = () => {
   const loadTeams = async () => {
     setLoading(true);
     try {
-      console.log("Loading teams from:", "http://localhost:4000/api/teams");
+      console.log("Loading teams from:", "https://quizbackendfinal-production.up.railway.app/api/teams");
       const response = await teamAPI.getTeams();
       console.log("Teams response:", response);
       setTeams(response.data);

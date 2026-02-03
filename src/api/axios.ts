@@ -1,5 +1,8 @@
 import axios from "axios";
 
+const API_BASE = (import.meta.env.VITE_API_BASE as string) ||
+  "https://quizbackendfinal-production.up.railway.app";
+
 // Token management utility
 const getToken = (): string | null => {
   const value = `; ${document.cookie}`;
@@ -11,7 +14,7 @@ const getToken = (): string | null => {
 };
 
 const api = axios.create({
-  baseURL: "http://localhost:4000/api", // Update this with your backend URL
+  baseURL: `${API_BASE}/api`,
   headers: {
     "Content-Type": "application/json",
   },
@@ -32,7 +35,7 @@ api.interceptors.request.use(
     }
     console.log(
       "📤 Request URL:",
-      `${config.baseURL || "http://localhost:4000/api"}${config.url || ""}`
+      `${config.baseURL || `${API_BASE}/api`}${config.url || ""}`
     );
     return config;
   },

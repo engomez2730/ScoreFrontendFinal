@@ -114,7 +114,7 @@ const GamesView: React.FC = () => {
   const loadGames = async () => {
     setLoading(true);
     try {
-      console.log("Loading games from:", "http://localhost:4000/api/games");
+      console.log("Loading games from:", "https://quizbackendfinal-production.up.railway.app/api/games");
       const response = await gameAPI.getGames();
       console.log("Games response:", response);
       setGames(response.data);
@@ -135,7 +135,7 @@ const GamesView: React.FC = () => {
 
   const loadTeams = async () => {
     try {
-      console.log("Loading teams from:", "http://localhost:4000/api/teams");
+      console.log("Loading teams from:", "https://quizbackendfinal-production.up.railway.app/api/teams");
       const response = await teamAPI.getTeams();
       console.log("Teams response:", response);
       setTeams(response.data);

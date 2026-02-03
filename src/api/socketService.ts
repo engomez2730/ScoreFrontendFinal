@@ -22,8 +22,10 @@ class SocketService {
     };
 
     const token = getToken();
-    
-    this.socket = io("http://localhost:4000", {
+    const API_BASE = (import.meta.env.VITE_API_BASE as string) ||
+      "https://quizbackendfinal-production.up.railway.app";
+
+    this.socket = io(API_BASE, {
       auth: {
         token: token
       }

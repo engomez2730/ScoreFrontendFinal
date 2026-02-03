@@ -32,7 +32,7 @@ const EventsView: React.FC = () => {
 
   const fetchEvents = async () => {
     try {
-      console.log("Loading events from:", "http://localhost:4000/api/events");
+      console.log("Loading events from:", "https://quizbackendfinal-production.up.railway.app/api/events");
       const response = await eventAPI.getEvents();
       console.log("Events response:", response);
       setEvents(response.data);
