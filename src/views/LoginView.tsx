@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Form, Input, Button, Card, Typography, Divider, message } from "antd";
+import { Form, Input, Button, Card, Typography, Divider, message, Alert } from "antd";
 import { LockOutlined, MailOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
@@ -10,21 +10,27 @@ const { Title, Text } = Typography;
 const LoginView: React.FC = () => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const onFinish = async (values: LoginCredentials) => {
     setLoading(true);
+    setLoginError(null);
     try {
       const success = await login(values);
       if (success) {
         navigate("/"); // Redirect to home page after successful login
       }
+      else {
+        // Invalid credentials
+        setLoginError("Correo o contraseña incorrectos");
+      }
     } catch (error) {
       // Only show error messages for connection issues
       if (error instanceof Error && error.message === "CONNECTION_ERROR") {
-        message.error(
-          "No se puede conectar al servidor. Verifica que el backend esté ejecutándose en el puerto 4000."
+        setLoginError(
+          "No se puede conectar al servidor. Verifica que el backend esté ejecutándose."
         );
       }
     } finally {
@@ -57,6 +63,16 @@ const LoginView: React.FC = () => {
           </Title>
           <Text type="secondary">Inicia sesión para continuar</Text>
         </div>
+
+        {loginError && (
+          <Alert
+            style={{ marginBottom: 16 }}
+            message="Error al iniciar sesión"
+            description={loginError}
+            type="error"
+            showIcon
+          />
+        )}
 
         <Form
           form={form}

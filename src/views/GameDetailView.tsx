@@ -487,10 +487,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     // Validate player is on court
     if (!statsModal.player.isOnCourt) {
       console.log("Player not on court");
-      notification.error({
-        message: "Error",
-        description:
-          "El jugador debe estar en la cancha para registrar estadísticas",
+      message.error({
+        content: "El jugador debe estar en la cancha para registrar estadísticas",
+        duration: 1,
       });
       return;
     }
@@ -519,9 +518,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       }
 
       console.log("Stat recorded successfully");
-      notification.success({
-        message: "Estadística Registrada",
-        description: `Se registró un ${
+      message.success({
+        content: `Se registró un ${
           statType === "assist"
             ? "asistencia"
             : statType === "rebound"
@@ -534,7 +532,11 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             ? "falta personal"
             : "tapón"
         } para ${statsModal.player.nombre} ${statsModal.player.apellido}`,
+        duration: 1,
       });
+
+      // Close modal for non-shot stats (rebotes, asistencias, robos, tapones, etc.)
+      closeStatsModal();
 
       // Only refresh game stats, don't reload everything to avoid restart
       try {
@@ -545,9 +547,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       }
     } catch (error) {
       console.error("Error recording stat:", error);
-      notification.error({
-        message: "Error",
-        description: "No se pudo registrar la estadística",
+      message.error({
+        content: "No se pudo registrar la estadística",
+        duration: 1,
       });
     }
   };
@@ -597,9 +599,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       });
 
       console.log("Shot recorded successfully");
-      notification.success({
-        message: "Tiro Registrado",
-        description: `${made ? "Anotado" : "Fallado"} ${
+      message.success({
+        content: `Tiro Registrado - ${made ? "Anotado" : "Fallado"} ${
           shotType === "2pt"
             ? "Tiro de 2 Puntos"
             : shotType === "3pt"
@@ -608,6 +609,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             ? "Tiro Libre"
             : "Tiro"
         } por ${statsModal.player.nombre} ${statsModal.player.apellido}`,
+        duration: 1,
       });
 
       closeStatsModal();
