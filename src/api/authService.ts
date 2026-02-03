@@ -16,7 +16,9 @@ export interface RegisterData {
     | "SCORER"
     | "REBOUNDER_ASSISTS"
     | "STEALS_BLOCKS"
-    | "ALL_AROUND";
+    | "ALL_AROUND"
+    | "SUPER_ADMIN"
+    | "TIME_CONTROLLER";
 }
 
 export type UserRole =
@@ -25,7 +27,9 @@ export type UserRole =
   | "SCORER"
   | "REBOUNDER_ASSISTS"
   | "STEALS_BLOCKS"
-  | "ALL_AROUND";
+  | "ALL_AROUND"
+  | "SUPER_ADMIN"
+  | "TIME_CONTROLLER";
 
 export interface User {
   id: number;

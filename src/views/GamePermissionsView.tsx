@@ -110,6 +110,10 @@ const GamePermissionsView: React.FC = () => {
       ADMIN: "red",
       TIME_CONTROLLER: "orange",
       USER: "blue",
+      SCORER: "green",
+      REBOUNDER_ASSISTS: "cyan",
+      STEALS_BLOCKS: "magenta",
+      ALL_AROUND: "gold",
     };
 
     const labels = {
@@ -117,6 +121,10 @@ const GamePermissionsView: React.FC = () => {
       ADMIN: "Administrador",
       TIME_CONTROLLER: "Controlador de Tiempo",
       USER: "Usuario",
+      SCORER: "Anotador",
+      REBOUNDER_ASSISTS: "Rebotes y Asistencias",
+      STEALS_BLOCKS: "Robos y Bloqueos",
+      ALL_AROUND: "Todo Terreno",
     };
 
     return (

@@ -33,6 +33,10 @@ const RoleSystemDemoView: React.FC = () => {
       ADMIN: "red",
       TIME_CONTROLLER: "orange",
       USER: "blue",
+      SCORER: "green",
+      REBOUNDER_ASSISTS: "cyan",
+      STEALS_BLOCKS: "magenta",
+      ALL_AROUND: "gold",
     };
 
     const labels = {
@@ -40,6 +44,10 @@ const RoleSystemDemoView: React.FC = () => {
       ADMIN: "Administrador",
       TIME_CONTROLLER: "Controlador de Tiempo",
       USER: "Usuario",
+      SCORER: "Anotador",
+      REBOUNDER_ASSISTS: "Rebotes y Asistencias",
+      STEALS_BLOCKS: "Robos y Bloqueos",
+      ALL_AROUND: "Todo Terreno",
     };
 
     return (
@@ -136,6 +144,10 @@ const RoleSystemDemoView: React.FC = () => {
       "Los administradores tienen todos los permisos disponibles y pueden gestionar permisos de otros usuarios. Tienen control total sobre los juegos.",
     SUPER_ADMIN:
       "Los super administradores tienen control completo del sistema, incluyendo la gestión de usuarios y la administración de roles. Son los únicos que pueden crear y eliminar usuarios.",
+    SCORER: "Usuario especializado en anotación y scoring.",
+    REBOUNDER_ASSISTS: "Usuario enfocado en rebotes y asistencias.",
+    STEALS_BLOCKS: "Usuario enfocado en robos y bloqueos.",
+    ALL_AROUND: "Usuario con habilidades variadas en varias estadísticas.",
   };
 
   const permissionsByCategory = allPermissions.reduce((acc, permission) => {

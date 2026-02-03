@@ -120,7 +120,7 @@ const GameDetailView: React.FC = () => {
   }>({ home: [], away: [] });
   const [gameTime, setGameTime] = useState(0);
   const [isClockRunning, setIsClockRunning] = useState(false);
-  const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(
+  const [timerInterval, setTimerInterval] = useState<ReturnType<typeof setInterval> | null>(
     null
   );
   const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>(

@@ -179,6 +179,8 @@ const UserManagementView: React.FC = () => {
       STEALS_BLOCKS: "green",
       ALL_AROUND: "purple",
       USER: "blue",
+      SUPER_ADMIN: "magenta",
+      TIME_CONTROLLER: "gold",
     };
 
     const labels: Record<UserRole, string> = {
@@ -188,6 +190,8 @@ const UserManagementView: React.FC = () => {
       STEALS_BLOCKS: "Robos/Bloqueos",
       ALL_AROUND: "Polivalente",
       USER: "Usuario",
+      SUPER_ADMIN: "Super Administrador",
+      TIME_CONTROLLER: "Controlador de Tiempo",
     };
 
     return (
