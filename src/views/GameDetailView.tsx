@@ -472,7 +472,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   };
 
   const recordStat = async (
-    statType: "assist" | "rebound" | "steal" | "block" | "turnover" | "foul"
+    statType: "assist" | "rebound" | "offensiveRebound" | "steal" | "block" | "turnover" | "foul"
   ) => {
     console.log("recordStat called:", {
       statType,
@@ -503,6 +503,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         case "rebound":
           await gameAPI.recordRebound(game.id, statsModal.player.id);
           break;
+        case "offensiveRebound":
+          await gameAPI.recordOffensiveRebound(game.id, statsModal.player.id);
+          break;
         case "steal":
           await gameAPI.recordSteal(game.id, statsModal.player.id);
           break;
@@ -524,6 +527,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             ? "asistencia"
             : statType === "rebound"
             ? "rebote"
+            : statType === "offensiveRebound"
+            ? "rebote ofensivo"
             : statType === "steal"
             ? "robo"
             : statType === "turnover"
@@ -2578,6 +2583,16 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                             onClick={() => recordStat("rebound")}
                           >
                             Rebote
+                          </Button>
+                        )}
+                        {hasPermission("canEditRebounds") && (
+                          <Button
+                            type="default"
+                            size="large"
+                            style={{ width: "160px" }}
+                            onClick={() => recordStat("offensiveRebound")}
+                          >
+                            Rebote Ofensivo
                           </Button>
                         )}
                         {hasPermission("canEditAssists") && (

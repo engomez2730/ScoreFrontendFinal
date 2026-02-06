@@ -96,6 +96,10 @@ export const gameAPI = {
   recordRebound: (gameId: string | number, playerId: number) =>
     api.post(`/games/${gameId}/record-rebound`, { playerId }),
 
+  // Record offensive rebound
+  recordOffensiveRebound: (gameId: string | number, playerId: number) =>
+    api.post(`/games/${gameId}/record-offensive-rebound`, { playerId }),
+
   // Record steal
   recordSteal: (gameId: string | number, playerId: number) =>
     api.post(`/games/${gameId}/record-steal`, { playerId }),

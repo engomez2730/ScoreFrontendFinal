@@ -14,6 +14,7 @@ import {
 } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { gameAPI, playerAPI } from "../services/apiService";
+import socketService from "../api/socketService";
 
 const { Title, Text } = Typography;
 
@@ -36,6 +37,7 @@ interface PlayerStats {
   playerId: number;
   puntos: number;
   rebotes: number;
+  rebotesOfensivos?: number;
   asistencias: number;
   robos: number;
   tapones: number;
@@ -120,6 +122,69 @@ const GameStatsView: React.FC = () => {
 
   useEffect(() => {
     loadGameStats();
+  }, [id]);
+
+  // Socket: connect and subscribe to real-time updates for this game
+  useEffect(() => {
+    if (!id) return;
+
+    const connectAndSubscribe = async () => {
+      try {
+        socketService.connect();
+        socketService.joinGame(Number(id));
+
+        // Subscribe to a list of possible realtime events emitted by backend.
+        const events = [
+          "statsUpdated",
+          "statRecorded",
+          "playerStatChanged",
+          "gameUpdated",
+          "reboundRecorded",
+          "offensiveReboundRecorded",
+          "substitutionMade",
+        ];
+
+        const handler = async (data: any) => {
+          try {
+            if (!data || data.gameId === undefined || data.gameId === null) {
+              // Some events may send the game id under different keys or not at all — refresh anyway
+              const resp = await gameAPI.getGame(id!);
+              setGameData(resp.data);
+              return;
+            }
+
+            if (Number(data.gameId) === Number(id)) {
+              const resp = await gameAPI.getGame(id!);
+              setGameData(resp.data);
+            }
+          } catch (err) {
+            console.error("Error refreshing game on realtime event:", err);
+          }
+        };
+
+        events.forEach((ev) => socketService.onEvent(ev, handler));
+      } catch (err) {
+        console.error("Socket connection error:", err);
+      }
+    };
+
+    connectAndSubscribe();
+
+    return () => {
+      // Unsubscribe the generic handler from known events
+      [
+        "statsUpdated",
+        "statRecorded",
+        "playerStatChanged",
+        "gameUpdated",
+        "reboundRecorded",
+        "offensiveReboundRecorded",
+        "substitutionMade",
+      ].forEach((ev) => socketService.offEvent(ev));
+
+      socketService.removeAllListeners();
+      socketService.disconnect();
+    };
   }, [id]);
 
   const loadGameStats = async () => {
@@ -296,6 +361,14 @@ const GameStatsView: React.FC = () => {
       align: "center" as const,
     },
     {
+      title: "REB OF",
+      dataIndex: "rebotesOfensivos",
+      key: "rebotesOfensivos",
+      width: 70,
+      align: "center" as const,
+      render: (value: number | undefined) => (value ?? 0),
+    },
+    {
       title: "AST",
       dataIndex: "asistencias",
       key: "asistencias",
@@ -395,6 +468,7 @@ const GameStatsView: React.FC = () => {
       playerId: 0,
       puntos: totals.puntos + stat.puntos,
       rebotes: totals.rebotes + stat.rebotes,
+      rebotesOfensivos: (totals.rebotesOfensivos || 0) + (stat.rebotesOfensivos || 0),
       asistencias: totals.asistencias + stat.asistencias,
       robos: totals.robos + stat.robos,
       tapones: totals.tapones + stat.tapones,
@@ -425,6 +499,7 @@ const GameStatsView: React.FC = () => {
       playerId: 0,
       puntos: 0,
       rebotes: 0,
+      rebotesOfensivos: 0,
       asistencias: 0,
       robos: 0,
       tapones: 0,

@@ -87,6 +87,17 @@ class SocketService {
     this.socket?.on("statsUpdated", callback);
   }
 
+  // Generic event subscription
+  onEvent(eventName: string, callback: (data: any) => void) {
+    this.socket?.on(eventName, callback);
+  }
+
+  // Generic event unsubscription
+  offEvent(eventName: string, callback?: (data: any) => void) {
+    if (callback) this.socket?.off(eventName, callback);
+    else this.socket?.off(eventName);
+  }
+
   onSubstitutionMade(callback: (data: Substitution) => void) {
     this.socket?.on("substitutionMade", callback);
   }
