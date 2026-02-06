@@ -3,11 +3,11 @@ import publicApi from "../api/publicAxios";
 
 // Game API functions
 export const gameAPI = {
-  // Get all games
-  getGames: () => api.get("/games"),
+  // Get all games (public)
+  getGames: () => publicApi.get("/games"),
 
-  // Get game by ID
-  getGame: (gameId: string | number) => api.get(`/games/${gameId}`),
+  // Get game by ID (public)
+  getGame: (gameId: string | number) => publicApi.get(`/games/${gameId}`),
 
   // Update game
   updateGame: (
@@ -40,9 +40,9 @@ export const gameAPI = {
     awayScore: number
   ) => api.put(`/games/${gameId}/score`, { homeScore, awayScore }),
 
-  // Get active players
+  // Get active players (public)
   getActivePlayers: (gameId: string | number) =>
-    api.get(`/games/${gameId}/active-players`),
+    publicApi.get(`/games/${gameId}/active-players`),
 
   // Start game with active players
   startGame: (
@@ -170,11 +170,11 @@ export const gameAPI = {
 
 // Team API functions
 export const teamAPI = {
-  // Get team by ID
-  getTeam: (teamId: string | number) => api.get(`/teams/${teamId}`),
+  // Get team by ID (public)
+  getTeam: (teamId: string | number) => publicApi.get(`/teams/${teamId}`),
 
-  // Get all teams
-  getTeams: () => api.get("/teams"),
+  // Get all teams (public)
+  getTeams: () => publicApi.get("/teams"),
 
   // Create new team
   createTeam: (teamData: any) => api.post("/teams", teamData),
@@ -193,22 +193,22 @@ export const substitutionAPI = {
   createSubstitution: (substitutionData: any) =>
     api.post("/substitutions", substitutionData),
 
-  // Get substitutions for a game
+  // Get substitutions for a game (public)
   getGameSubstitutions: (gameId: string | number) =>
-    api.get(`/substitutions/game/${gameId}`),
+    publicApi.get(`/substitutions/game/${gameId}`),
 };
 
 // Player API functions
 export const playerAPI = {
-  // Get all players
-  getPlayers: () => api.get("/players"),
+  // Get all players (public)
+  getPlayers: () => publicApi.get("/players"),
 
-  // Get player by ID
-  getPlayer: (playerId: string | number) => api.get(`/players/${playerId}`),
+  // Get player by ID (public)
+  getPlayer: (playerId: string | number) => publicApi.get(`/players/${playerId}`),
 
-  // Get players by team
+  // Get players by team (public)
   getTeamPlayers: (teamId: string | number) =>
-    api.get(`/players/team/${teamId}`),
+    publicApi.get(`/players/team/${teamId}`),
 
   // Create new player
   createPlayer: (playerData: any) => api.post("/players", playerData),
@@ -224,11 +224,11 @@ export const playerAPI = {
 
 // Event API functions
 export const eventAPI = {
-  // Get all events
-  getEvents: () => api.get("/events"),
+  // Get all events (public)
+  getEvents: () => publicApi.get("/events"),
 
-  // Get event by ID
-  getEvent: (eventId: string | number) => api.get(`/events/${eventId}`),
+  // Get event by ID (public)
+  getEvent: (eventId: string | number) => publicApi.get(`/events/${eventId}`),
 
   // Create new event
   createEvent: (eventData: any) => api.post("/events", eventData),

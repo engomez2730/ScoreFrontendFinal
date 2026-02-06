@@ -1,4 +1,5 @@
 import api from "./axios";
+import publicApi from "./publicAxios";
 
 export interface GameStats {
   gameId: number;
@@ -13,15 +14,15 @@ export interface GameStats {
 }
 
 const statsService = {
-  // Get all stats for a game
+  // Get all stats for a game (public)
   getGameStats: async (gameId: number) => {
-    const response = await api.get(`/games/${gameId}/stats`);
+    const response = await publicApi.get(`/games/${gameId}/stats`);
     return response.data;
   },
 
-  // Get player stats in a game
+  // Get player stats in a game (public)
   getPlayerGameStats: async (gameId: number, playerId: number) => {
-    const response = await api.get(
+    const response = await publicApi.get(
       `/games/${gameId}/players/${playerId}/stats`
     );
     return response.data;
@@ -54,9 +55,9 @@ const statsService = {
     await api.delete(`/games/${gameId}/players/${playerId}/stats`);
   },
 
-  // Get team stats for a game
+  // Get team stats for a game (public)
   getTeamGameStats: async (gameId: number, teamId: number) => {
-    const response = await api.get(`/games/${gameId}/teams/${teamId}/stats`);
+    const response = await publicApi.get(`/games/${gameId}/teams/${teamId}/stats`);
     return response.data;
   },
 };
