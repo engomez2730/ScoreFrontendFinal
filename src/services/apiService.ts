@@ -1,12 +1,13 @@
 import api from "../api/axios";
+import publicApi from "../api/publicAxios";
 
 // Game API functions
 export const gameAPI = {
   // Get all games
   getGames: () => api.get("/games"),
 
-  // Get game by ID
-  getGame: (gameId: string | number) => api.get(`/games/${gameId}`),
+  // Get game by ID (public — does not require auth)
+  getGame: (gameId: string | number) => publicApi.get(`/games/${gameId}`),
 
   // Update game
   updateGame: (
@@ -142,8 +143,8 @@ export const gameAPI = {
     }
   ) => api.put(`/games/${gameId}/full-update`, gameState),
 
-  // Get game stats
-  getGameStats: (gameId: string | number) => api.get(`/games/${gameId}/stats`),
+  // Get game stats (public — does not require auth)
+  getGameStats: (gameId: string | number) => publicApi.get(`/games/${gameId}/stats`),
 
   // Make substitution (updated endpoints)
   makeHomeSubstitution: (substitutionData: {
