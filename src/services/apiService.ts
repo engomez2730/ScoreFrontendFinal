@@ -6,8 +6,8 @@ export const gameAPI = {
   // Get all games
   getGames: () => api.get("/games"),
 
-  // Get game by ID (public — does not require auth)
-  getGame: (gameId: string | number) => publicApi.get(`/games/${gameId}`),
+  // Get game by ID
+  getGame: (gameId: string | number) => api.get(`/games/${gameId}`),
 
   // Update game
   updateGame: (

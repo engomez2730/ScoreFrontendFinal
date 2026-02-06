@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
 import {
   Layout,
   Menu,
@@ -42,6 +42,8 @@ const { Title } = Typography;
 
 const AppHeader: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
+  const location = useLocation();
+  const isPublicGameView = /^\/games\/\d+\/stats$/.test(location.pathname);
   const [selectedKey, setSelectedKey] = useState("1");
 
   const handleLogout = async () => {
@@ -139,13 +141,16 @@ const AppHeader: React.FC = () => {
             </Space>
           </Dropdown>
         ) : (
-          <Space>
-            <Button type="default" ghost icon={<LoginOutlined />}>
-              <Link to="/login" style={{ color: "inherit" }}>
-                Iniciar Sesión
-              </Link>
-            </Button>
-          </Space>
+          // Hide login button when viewing public game pages
+          !isPublicGameView && (
+            <Space>
+              <Button type="default" ghost icon={<LoginOutlined />}>
+                <Link to="/login" style={{ color: "inherit" }}>
+                  Iniciar Sesión
+                </Link>
+              </Button>
+            </Space>
+          )
         )}
       </div>
     </Header>
@@ -182,6 +187,7 @@ const App: React.FC = () => {
                     </ProtectedRoute>
                   }
                 />
+                {/* Game detail requires auth; stats is public (view-only) */}
                 <Route
                   path="/games/:id"
                   element={
@@ -190,14 +196,7 @@ const App: React.FC = () => {
                     </ProtectedRoute>
                   }
                 />
-                <Route
-                  path="/games/:id/stats"
-                  element={
-                    <ProtectedRoute>
-                      <GameStatsView />
-                    </ProtectedRoute>
-                  }
-                />
+                <Route path="/games/:id/stats" element={<GameStatsView />} />
                 <Route
                   path="/players"
                   element={

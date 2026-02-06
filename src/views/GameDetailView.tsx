@@ -1215,28 +1215,36 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
   useEffect(() => {
     const initializeGame = async () => {
-      if (id && user) {
+      if (!id) return;
+
+      // Always load public game data so the page is viewable without auth
+      await loadGameData();
+
+      // If user is authenticated, perform authenticated setup (sockets, permissions)
+      if (user) {
         console.log("🎮 Initializing game for user:", user.rol, "Game ID:", id);
-        
+
         // Connect to socket
         socketService.connect();
         socketService.joinGame(Number(id));
-        
+
         // Listen for substitution events from other users
         socketService.onSubstitutionMade((substitutionData) => {
           console.log("🔄 Substitution event received:", substitutionData);
-          
+
           // Reload game data to get updated player states
           loadGameData();
-          
+
           message.info("Sustitución realizada por otro usuario", 2);
         });
-        
+
         // First join the game to get permissions
-        const joinResult = await joinGame(Number(id));
-        console.log("🎮 Join game result:", joinResult);
-        // Then load game data
-        loadGameData();
+        try {
+          const joinResult = await joinGame(Number(id));
+          console.log("🎮 Join game result:", joinResult);
+        } catch (err) {
+          console.error("Error joining game:", err);
+        }
       }
     };
 
