@@ -1,0 +1,126 @@
+/* Responsive styles for mobile devices */
+
+/* Mobile styles */
+@media (max-width: 768px) {
+  /* Make tables more readable on mobile */
+  .ant-table {
+    font-size: 12px;
+  }
+
+  .ant-table-thead > tr > th {
+    padding: 8px 4px !important;
+    font-size: 11px;
+  }
+
+  .ant-table-tbody > tr > td {
+    padding: 8px 4px !important;
+  }
+
+  /* Adjust card padding for mobile */
+  .ant-card-body {
+    padding: 12px;
+  }
+
+  .ant-card-head {
+    padding: 0 12px;
+    min-height: 40px;
+  }
+
+  .ant-card-head-title {
+    padding: 8px 0;
+  }
+
+  /* Adjust typography for mobile */
+  h1.ant-typography {
+    font-size: 24px !important;
+  }
+
+  h2.ant-typography {
+    font-size: 20px !important;
+  }
+
+  h3.ant-typography {
+    font-size: 18px !important;
+  }
+
+  h4.ant-typography {
+    font-size: 16px !important;
+  }
+
+  /* Button adjustments for mobile */
+  .ant-btn {
+    padding: 4px 8px;
+    font-size: 14px;
+  }
+
+  /* Space adjustments */
+  .ant-space-item {
+    margin-bottom: 4px;
+  }
+
+  /* Make tags smaller on mobile */
+  .ant-tag {
+    padding: 0 4px;
+    font-size: 11px;
+  }
+
+  /* Adjust row gutter for mobile */
+  .ant-row {
+    margin-left: -4px !important;
+    margin-right: -4px !important;
+  }
+
+  .ant-col {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+
+  /* Header adjustments */
+  .ant-layout-header {
+    height: 56px;
+    line-height: 56px;
+  }
+
+  /* Menu drawer adjustments */
+  .ant-drawer-body {
+    padding: 12px;
+  }
+
+  /* Form adjustments */
+  .ant-form-item {
+    margin-bottom: 12px;
+  }
+}
+
+/* Extra small devices (phones in portrait) */
+@media (max-width: 480px) {
+  .ant-table {
+    font-size: 11px;
+  }
+
+  .ant-table-thead > tr > th {
+    padding: 6px 2px !important;
+    font-size: 10px;
+  }
+
+  .ant-table-tbody > tr > td {
+    padding: 6px 2px !important;
+  }
+
+  h2.ant-typography {
+    font-size: 18px !important;
+  }
+
+  h3.ant-typography {
+    font-size: 16px !important;
+  }
+
+  h4.ant-typography {
+    font-size: 14px !important;
+  }
+}
+
+/* Ensure tables are scrollable horizontally */
+.ant-table-wrapper {
+  overflow-x: auto;
+}

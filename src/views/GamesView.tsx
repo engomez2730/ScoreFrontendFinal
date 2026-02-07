@@ -30,6 +30,7 @@ import {
 import { gameAPI, teamAPI, eventAPI } from "../services/apiService";
 import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
+import { useIsMobile } from "../hooks/useIsMobile";
 
 interface GameType {
   id: number;
@@ -90,6 +91,7 @@ interface GameUpdateData {
 
 const GamesView: React.FC = () => {
   const { notification } = App.useApp();
+  const isMobile = useIsMobile();
   const [games, setGames] = useState<Game[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
@@ -669,9 +671,9 @@ const GamesView: React.FC = () => {
           }
         }}
         footer={null}
-        width={window.innerWidth < 768 ? "100%" : editingGame ? 600 : 900}
-        style={window.innerWidth < 768 ? { top: 20, maxWidth: "calc(100vw - 32px)" } : {}}
-        bodyStyle={window.innerWidth < 768 ? { padding: "16px" } : {}}
+        width={isMobile ? "100%" : editingGame ? 600 : 900}
+        style={isMobile ? { top: 20, maxWidth: "calc(100vw - 32px)" } : {}}
+        bodyStyle={isMobile ? { padding: "16px" } : {}}
       >
         {editingGame ? (
           // Editing existing game - show simple form

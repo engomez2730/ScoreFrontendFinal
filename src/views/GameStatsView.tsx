@@ -15,6 +15,7 @@ import {
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { gameAPI, playerAPI } from "../services/apiService";
 import socketService from "../api/socketService";
+import { useIsMobile } from "../hooks/useIsMobile";
 
 const { Title, Text } = Typography;
 
@@ -119,6 +120,7 @@ const GameStatsView: React.FC = () => {
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [loading, setLoading] = useState(true);
   const [players, setPlayers] = useState<Record<number, any>>({});
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     loadGameStats();
@@ -247,6 +249,13 @@ const GameStatsView: React.FC = () => {
     }
   };
 
+  const formatPlayerName = (nombre: string, apellido: string): string => {
+    if (isMobile && nombre) {
+      return `${nombre.charAt(0)}. ${apellido}`;
+    }
+    return `${nombre} ${apellido}`;
+  };
+
   const createStatsColumns = () => [
     {
       title: "Jugador",
@@ -267,7 +276,7 @@ const GameStatsView: React.FC = () => {
 
         return (
           <Space direction="vertical" size={0}>
-            <Text strong>{`${player.nombre} ${player.apellido}`}</Text>
+            <Text strong>{formatPlayerName(player.nombre, player.apellido)}</Text>
             <Text type="secondary" style={{ fontSize: "12px" }}>
               #{player.numero} • {player.posicion}
             </Text>
@@ -583,9 +592,13 @@ const GameStatsView: React.FC = () => {
   const gameStatus = getGameStatus(gameData.estado);
 
   return (
-    <div style={{ padding: "24px", maxWidth: "1400px", margin: "0 auto" }}>
+    <div style={{ 
+      padding: isMobile ? "8px" : "24px", 
+      maxWidth: "1400px", 
+      margin: "0 auto" 
+    }}>
       {/* Header */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+      <Row gutter={[16, 16]} style={{ marginBottom: isMobile ? 12 : 24 }}>
         <Col span={24}>
           <Space>
             <Link to="/games">
@@ -598,41 +611,96 @@ const GameStatsView: React.FC = () => {
       </Row>
 
       {/* Game Header */}
-      <Card style={{ marginBottom: 24 }}>
-        <Row gutter={[24, 16]} align="middle">
-          <Col xs={24} md={8} style={{ textAlign: "center" }}>
-            <Space direction="vertical" size={4}>
-              <Title level={3} style={{ margin: 0, color: "#1890ff" }}>
+      <Card style={{ marginBottom: isMobile ? 12 : 24 }}>
+        {/* Team scores - horizontal layout */}
+        <Row 
+          gutter={16} 
+          align="middle" 
+          justify="space-between"
+          style={{ marginBottom: 16 }}
+        >
+          {/* Home Team - Left */}
+          <Col xs={11} sm={11} md={11}>
+            <Space direction="vertical" size={0} style={{ width: "100%" }}>
+              <Text type="secondary" style={{ fontSize: isMobile ? "12px" : "14px" }}>
+                Local
+              </Text>
+              <Title 
+                level={isMobile ? 4 : 3} 
+                style={{ margin: "4px 0", color: "#1890ff" }}
+              >
                 {gameData.teamHome.nombre}
               </Title>
-              <Text type="secondary">Local</Text>
+              <Title 
+                level={1} 
+                style={{ 
+                  margin: 0, 
+                  fontSize: isMobile ? "48px" : "64px",
+                  fontWeight: "bold",
+                  color: "#1890ff"
+                }}
+              >
+                {gameData.homeScore}
+              </Title>
             </Space>
           </Col>
 
-          <Col xs={24} md={8} style={{ textAlign: "center" }}>
-            <Space direction="vertical" size={8}>
-              <Title level={1} style={{ margin: 0, fontSize: "48px" }}>
-                {gameData.homeScore} - {gameData.awayScore}
+          {/* VS Divider */}
+          <Col xs={2} sm={2} md={2} style={{ textAlign: "center" }}>
+            <Text 
+              type="secondary" 
+              style={{ 
+                fontSize: isMobile ? "18px" : "24px",
+                fontWeight: "bold" 
+              }}
+            >
+              VS
+            </Text>
+          </Col>
+
+          {/* Away Team - Right */}
+          <Col xs={11} sm={11} md={11}>
+            <Space direction="vertical" size={0} style={{ width: "100%", textAlign: "right" }}>
+              <Text type="secondary" style={{ fontSize: isMobile ? "12px" : "14px" }}>
+                Visitante
+              </Text>
+              <Title 
+                level={isMobile ? 4 : 3} 
+                style={{ margin: "4px 0", color: "#ff4d4f" }}
+              >
+                {gameData.teamAway.nombre}
               </Title>
-              <Space>
-                <Tag color={gameStatus.color}>{gameStatus.text}</Tag>
-                <Text>Q{gameData.currentQuarter}</Text>
-                <Text>
+              <Title 
+                level={1} 
+                style={{ 
+                  margin: 0, 
+                  fontSize: isMobile ? "48px" : "64px",
+                  fontWeight: "bold",
+                  color: "#ff4d4f"
+                }}
+              >
+                {gameData.awayScore}
+              </Title>
+            </Space>
+          </Col>
+        </Row>
+
+        {/* Game Info - Centered below */}
+        <Row justify="center" style={{ borderTop: "1px solid #f0f0f0", paddingTop: 16 }}>
+          <Col>
+            <Space size={isMobile ? "small" : "middle"} wrap>
+              <Tag color={gameStatus.color} style={{ fontSize: isMobile ? "12px" : "14px" }}>
+                {gameStatus.text}
+              </Tag>
+              <Space size={4}>
+                <Text strong>Q{gameData.currentQuarter}</Text>
+                <Text type="secondary">•</Text>
+                <Text strong>
                   {formatTime(
                     (gameData.quarterLength - gameData.quarterTime) * 1000
                   )}
                 </Text>
               </Space>
-              <Text type="secondary">{gameData.event.nombre}</Text>
-            </Space>
-          </Col>
-
-          <Col xs={24} md={8} style={{ textAlign: "center" }}>
-            <Space direction="vertical" size={4}>
-              <Title level={3} style={{ margin: 0, color: "#ff4d4f" }}>
-                {gameData.teamAway.nombre}
-              </Title>
-              <Text type="secondary">Visitante</Text>
             </Space>
           </Col>
         </Row>
@@ -645,7 +713,7 @@ const GameStatsView: React.FC = () => {
             {gameData.teamHome.nombre} - Estadísticas
           </Title>
         }
-        style={{ marginBottom: 24 }}
+        style={{ marginBottom: isMobile ? 12 : 24 }}
       >
         <Table
           dataSource={[...homeStats, homeTeamTotals]}
@@ -688,9 +756,9 @@ const GameStatsView: React.FC = () => {
             Faltas por Equipo
           </Title>
         }
-        style={{ marginTop: 24 }}
+        style={{ marginTop: isMobile ? 12 : 24 }}
       >
-        <Row gutter={[24, 16]}>
+        <Row gutter={isMobile ? [8, 8] : [24, 16]}>
           {/* Home Team Fouls */}
           <Col xs={24} md={12}>
             <Card 
@@ -802,9 +870,9 @@ const GameStatsView: React.FC = () => {
             Puntos por Cuarto
           </Title>
         }
-        style={{ marginTop: 24 }}
+        style={{ marginTop: isMobile ? 12 : 24 }}
       >
-        <Row gutter={[24, 16]}>
+        <Row gutter={isMobile ? [8, 8] : [24, 16]}>
           {/* Home Team Scoring */}
           <Col xs={24} md={12}>
             <Card 
@@ -916,9 +984,9 @@ const GameStatsView: React.FC = () => {
             Resumen de Puntos: Quinteto vs Banca
           </Title>
         }
-        style={{ marginTop: 24 }}
+        style={{ marginTop: isMobile ? 12 : 24 }}
       >
-        <Row gutter={[24, 16]}>
+        <Row gutter={isMobile ? [8, 8] : [24, 16]}>
           {/* Home Team Points Breakdown */}
           <Col xs={24} md={12}>
             <Card 
@@ -999,7 +1067,7 @@ const GameStatsView: React.FC = () => {
               Sustituciones
             </Title>
           }
-          style={{ marginTop: 24 }}
+          style={{ marginTop: isMobile ? 12 : 24 }}
         >
           <Space direction="vertical" style={{ width: "100%" }}>
             {gameData.substitutions.map((sub) => {
@@ -1016,13 +1084,13 @@ const GameStatsView: React.FC = () => {
                   <Text>
                     <Text strong>
                       {playerOut
-                        ? `${playerOut.nombre} ${playerOut.apellido}`
+                        ? formatPlayerName(playerOut.nombre, playerOut.apellido)
                         : `Jugador ${sub.playerOutId}`}
                     </Text>
                     {" → "}
                     <Text strong>
                       {playerIn
-                        ? `${playerIn.nombre} ${playerIn.apellido}`
+                        ? formatPlayerName(playerIn.nombre, playerIn.apellido)
                         : `Jugador ${sub.playerInId}`}
                     </Text>
                   </Text>
