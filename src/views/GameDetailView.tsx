@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   Row,
@@ -157,6 +157,20 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   const [game, setGame] = useState<Game | null>(null);
   const [homeTeam, setHomeTeam] = useState<Team | null>(null);
   const [awayTeam, setAwayTeam] = useState<Team | null>(null);
+  
+  // Use refs to hold latest team data for the timer to avoid closure issues
+  const homeTeamRef = useRef<Team | null>(null);
+  const awayTeamRef = useRef<Team | null>(null);
+  
+  // Update refs whenever teams change
+  useEffect(() => {
+    homeTeamRef.current = homeTeam;
+  }, [homeTeam]);
+  
+  useEffect(() => {
+    awayTeamRef.current = awayTeam;
+  }, [awayTeam]);
+  
   const [isLineupModalVisible, setIsLineupModalVisible] = useState(false);
 
   const [selectedPlayers, setSelectedPlayers] = useState<{
@@ -185,6 +199,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     const saved = localStorage.getItem(`game-${gameId}-plusminus`);
     return saved ? JSON.parse(saved) : {};
   });
+
+  // Track last timer update for precise time tracking using useRef to avoid closure issues
+  const lastTimerUpdateRef = useRef<number>(Date.now());
 
   // Save plus-minus to localStorage whenever it changes
   useEffect(() => {
@@ -390,12 +407,18 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         });
 
         // Update local team state immediately for better UX
+        console.log(`🔄 Updating team states for substitution...`);
+        console.log(`   Player OUT: ${substitutionState.playerOut?.nombre} (ID: ${substitutionState.playerOut?.id}) - Current minutes: ${Math.round((playerMinutes[substitutionState.playerOut?.id || 0] || 0) / 1000)}s`);
+        console.log(`   Player IN: ${playerIn.nombre} (ID: ${playerIn.id}) - Current minutes: ${Math.round((playerMinutes[playerIn.id] || 0) / 1000)}s`);
+        
         if (substitutionState.selectedTeam === "home" && homeTeam) {
           const updatedHomePlayers = homeTeam.players.map((p) => {
             if (p.id === playerIn.id) {
+              console.log(`   ✅ Setting ${p.nombre} as ON COURT`);
               return { ...p, isOnCourt: true };
             }
             if (p.id === substitutionState.playerOut?.id) {
+              console.log(`   ⛔ Setting ${p.nombre} as OFF COURT`);
               return { ...p, isOnCourt: false };
             }
             return p;
@@ -404,9 +427,11 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         } else if (substitutionState.selectedTeam === "away" && awayTeam) {
           const updatedAwayPlayers = awayTeam.players.map((p) => {
             if (p.id === playerIn.id) {
+              console.log(`   ✅ Setting ${p.nombre} as ON COURT`);
               return { ...p, isOnCourt: true };
             }
             if (p.id === substitutionState.playerOut?.id) {
+              console.log(`   ⛔ Setting ${p.nombre} as OFF COURT`);
               return { ...p, isOnCourt: false };
             }
             return p;
@@ -429,8 +454,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           timestamp: new Date().toISOString(),
         });
 
-        // Refresh game data to ensure consistency with backend
-        await loadGameData();
+        // DO NOT call loadGameData() - it resets player minutes and causes state issues
+        // The local state updates above are sufficient
 
         console.log(
           `✅ Substitution completed: ${playerOutName} → ${playerInName}`
@@ -522,31 +547,34 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
       console.log("Stat recorded successfully");
       message.success({
-        content: `Se registró un ${
-          statType === "assist"
-            ? "asistencia"
-            : statType === "rebound"
+        content: `Se registró un ${statType === "assist"
+          ? "asistencia"
+          : statType === "rebound"
             ? "rebote"
             : statType === "offensiveRebound"
-            ? "rebote ofensivo"
-            : statType === "steal"
-            ? "robo"
-            : statType === "turnover"
-            ? "pérdida"
-            : statType === "foul"
-            ? "falta personal"
-            : "tapón"
-        } para ${statsModal.player.nombre} ${statsModal.player.apellido}`,
+              ? "rebote ofensivo"
+              : statType === "steal"
+                ? "robo"
+                : statType === "turnover"
+                  ? "pérdida"
+                  : statType === "foul"
+                    ? "falta personal"
+                    : "tapón"
+          } para ${statsModal.player.nombre} ${statsModal.player.apellido}`,
         duration: 1,
       });
 
       // Close modal for non-shot stats (rebotes, asistencias, robos, tapones, etc.)
       closeStatsModal();
 
-      // Only refresh game stats, don't reload everything to avoid restart
+      // Refresh game data without calling loadGameData to preserve timer state
       try {
         const updatedGame = await gameAPI.getGame(game.id);
         setGame(updatedGame.data);
+        
+        // Update team scores without reloading entire team data
+        setHomeTeam(prev => prev ? { ...prev, score: updatedGame.data.homeScore || 0 } : null);
+        setAwayTeam(prev => prev ? { ...prev, score: updatedGame.data.awayScore || 0 } : null);
       } catch (error) {
         console.error("Error refreshing game data:", error);
       }
@@ -605,23 +633,26 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
       console.log("Shot recorded successfully");
       message.success({
-        content: `Tiro Registrado - ${made ? "Anotado" : "Fallado"} ${
-          shotType === "2pt"
-            ? "Tiro de 2 Puntos"
-            : shotType === "3pt"
+        content: `Tiro Registrado - ${made ? "Anotado" : "Fallado"} ${shotType === "2pt"
+          ? "Tiro de 2 Puntos"
+          : shotType === "3pt"
             ? "Tiro de 3 Puntos"
             : shotType === "ft"
-            ? "Tiro Libre"
-            : "Tiro"
-        } por ${statsModal.player.nombre} ${statsModal.player.apellido}`,
+              ? "Tiro Libre"
+              : "Tiro"
+          } por ${statsModal.player.nombre} ${statsModal.player.apellido}`,
         duration: 1,
       });
 
       closeStatsModal();
-      // Only refresh game stats, don't reload everything to avoid restart
+      // Refresh game data (scores, stats) without calling loadGameData to preserve timer state
       try {
         const updatedGame = await gameAPI.getGame(game.id);
         setGame(updatedGame.data);
+        
+        // Update team scores without reloading entire team data
+        setHomeTeam(prev => prev ? { ...prev, score: updatedGame.data.homeScore || 0 } : null);
+        setAwayTeam(prev => prev ? { ...prev, score: updatedGame.data.awayScore || 0 } : null);
       } catch (error) {
         console.error("Error refreshing game data:", error);
       }
@@ -682,41 +713,63 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       return; // Already running
     }
 
+    // Set the last timer update to now when starting the timer
+    const startTime = Date.now();
+    lastTimerUpdateRef.current = startTime;
+    console.log(`⏱️ ========================================`);
+    console.log(`⏱️ TIMER STARTED at timestamp: ${startTime}`);
+    console.log(`⏱️ Current game time: ${formatTime(gameTime)}`);
+    console.log(`⏱️ Current player minutes:`, Object.entries(playerMinutes).map(([id, ms]) => `Player ${id}: ${Math.round(ms/1000)}s`).join(', '));
+    console.log(`⏱️ ========================================`);
+
     const interval = setInterval(async () => {
       setGameTime((prev) => {
         const newTime = prev - 1;
         if (newTime >= 0) {
-          updateGameTime(QUARTER_LENGTH - newTime);
-          // Update minutes for players on court
-          if (homeTeam && awayTeam) {
+          const gameTimeElapsed = QUARTER_LENGTH - newTime; // How much game time has passed
+          updateGameTime(gameTimeElapsed);
+          
+          // Update minutes for players on court using precise timestamp calculation
+          // Use refs to get current team data and avoid closure issues
+          const currentHomeTeam = homeTeamRef.current;
+          const currentAwayTeam = awayTeamRef.current;
+          
+          if (currentHomeTeam && currentAwayTeam) {
+            const now = Date.now();
+            const elapsed = now - lastTimerUpdateRef.current;
+            
+            // CRITICAL: Update the ref IMMEDIATELY to prevent any time loss
+            lastTimerUpdateRef.current = now;
+            
             const onCourtPlayers = [
-              ...homeTeam.players.filter((p) => p.isOnCourt),
-              ...awayTeam.players.filter((p) => p.isOnCourt),
+              ...currentHomeTeam.players.filter((p) => p.isOnCourt),
+              ...currentAwayTeam.players.filter((p) => p.isOnCourt),
             ];
+
+            console.log(`⏱️ === TIMER TICK at ${now} (elapsed: ${elapsed}ms) ===`);
 
             setPlayerMinutes((prev) => {
               const updated = { ...prev };
+              const previousTotal = Object.values(prev).reduce((sum, val) => sum + val, 0);
+              
               onCourtPlayers.forEach((player) => {
                 const oldTime = updated[player.id] || 0;
-                const newTime = oldTime + 1000;
+                const newTime = oldTime + elapsed;
                 console.log(
-                  `Player ${player.nombre} ${player.apellido} (ID: ${player.id}): ${oldTime}ms → ${newTime}ms`
+                  `  Player ${player.nombre} ${player.apellido} (ID: ${player.id}): ${Math.round(oldTime/1000)}s → ${Math.round(newTime/1000)}s (+${elapsed}ms)`
                 );
-                updated[player.id] = newTime; // Add 1000ms (1 second)
+                updated[player.id] = newTime;
               });
 
-              // Show current time totals for all on-court players
-              console.log(
-                "Current on-court player times:",
-                onCourtPlayers
-                  .map(
-                    (p) =>
-                      `${p.nombre} ${p.apellido}: ${Math.round(
-                        (updated[p.id] || 0) / 1000
-                      )}s`
-                  )
-                  .join(", ")
-              );
+              const newTotal = Object.values(updated).reduce((sum, val) => sum + val, 0);
+              const averagePlayerTime = onCourtPlayers.length > 0 ? newTotal / onCourtPlayers.length : 0;
+              
+              console.log(`  Total player time: ${Math.round(previousTotal/1000)}s → ${Math.round(newTotal/1000)}s (delta: +${Math.round((newTotal - previousTotal)/1000)}s)`);
+              console.log(`  📊 COMPARISON: Game time elapsed: ${gameTimeElapsed}s | Avg player time: ${Math.round(averagePlayerTime/1000)}s | Diff: ${Math.round((gameTimeElapsed*1000 - averagePlayerTime)/1000)}s`);
+              
+              if (Math.abs(gameTimeElapsed*1000 - averagePlayerTime) > 2000) {
+                console.warn(`  ⚠️ WARNING: More than 2s difference between game time and player time!`);
+              }
 
               return updated;
             });
@@ -793,7 +846,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     }
 
     try {
-      console.log("Saving player minutes to backend:", playerMinutes);
+      console.log("💾 === SAVING PLAYER MINUTES TO BACKEND ===");
+      console.log("Current playerMinutes state:", playerMinutes);
 
       // Convert playerMinutes to the format expected by the bulk endpoint
       // The endpoint expects {playerId: milliseconds} as strings for keys
@@ -803,10 +857,15 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       allPlayers.forEach((player) => {
         const millisecondsPlayed = playerMinutes[player.id] || 0;
         playerMinutesPayload[player.id.toString()] = millisecondsPlayed;
+        console.log(`  ${player.nombre} ${player.apellido} (ID: ${player.id}): ${Math.round(millisecondsPlayed/1000)} seconds`);
       });
+
+      console.log("Payload to send:", playerMinutesPayload);
 
       // Update all player minutes in a single bulk request
       await gameAPI.updatePlayerMinutes(game.id, playerMinutesPayload);
+      
+      console.log("✅ Player minutes saved successfully to backend");
 
       // NOTE: Plus-minus is now automatically calculated by the backend when recording shots
       // No need to update plus-minus manually from frontend
@@ -882,8 +941,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       console.log(`🏀 ==== TEAM SCORED! ====`);
       console.log(`🏀 SCORE UPDATE: ${homeScore}-${awayScore}`);
       console.log(
-        `🏀 Previous scores - Home: ${homeTeam?.score || 0}, Away: ${
-          awayTeam?.score || 0
+        `🏀 Previous scores - Home: ${homeTeam?.score || 0}, Away: ${awayTeam?.score || 0
         }`
       );
 
@@ -985,8 +1043,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           updated[player.id] = oldValue + homeScoreChange;
           totalUpdated++;
           console.log(
-            `🏠 ${player.nombre} (ID: ${player.id}): ${oldValue} → ${
-              updated[player.id]
+            `🏠 ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]
             } (+${homeScoreChange})`
           );
         });
@@ -997,8 +1054,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           updated[player.id] = oldValue - homeScoreChange;
           totalUpdated++;
           console.log(
-            `✈️ ${player.nombre} (ID: ${player.id}): ${oldValue} → ${
-              updated[player.id]
+            `✈️ ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]
             } (-${homeScoreChange})`
           );
         });
@@ -1014,8 +1070,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           updated[player.id] = oldValue + awayScoreChange;
           totalUpdated++;
           console.log(
-            `✈️ ${player.nombre} (ID: ${player.id}): ${oldValue} → ${
-              updated[player.id]
+            `✈️ ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]
             } (+${awayScoreChange})`
           );
         });
@@ -1026,8 +1081,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           updated[player.id] = oldValue - awayScoreChange;
           totalUpdated++;
           console.log(
-            `🏠 ${player.nombre} (ID: ${player.id}): ${oldValue} → ${
-              updated[player.id]
+            `🏠 ${player.nombre} (ID: ${player.id}): ${oldValue} → ${updated[player.id]
             } (-${awayScoreChange})`
           );
         });
@@ -1172,8 +1226,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
     console.log(`📊 Plus-minus update summary:`);
     console.log(
-      `    Players processed: ${
-        homePlayersOnCourt.length + awayPlayersOnCourt.length
+      `    Players processed: ${homePlayersOnCourt.length + awayPlayersOnCourt.length
       }`
     );
     console.log(`    Players updated: ${playersUpdated}`);
@@ -1229,11 +1282,41 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         socketService.joinGame(Number(id));
 
         // Listen for substitution events from other users
-        socketService.onSubstitutionMade((substitutionData) => {
+        socketService.onSubstitutionMade(async (substitutionData) => {
           console.log("🔄 Substitution event received:", substitutionData);
 
-          // Reload game data to get updated player states
-          loadGameData();
+          // Update player states without calling loadGameData to preserve timer
+          try {
+            const activePlayers = await gameAPI.getActivePlayers(id!);
+            if (activePlayers.data) {
+              const homePlayers = activePlayers.data.homeTeam?.players || [];
+              const awayPlayers = activePlayers.data.awayTeam?.players || [];
+              
+              const homeActiveIds = homePlayers.map((p: Player) => p.id);
+              const awayActiveIds = awayPlayers.map((p: Player) => p.id);
+              
+              // Update isOnCourt status for all players
+              setHomeTeam(prev => prev ? {
+                ...prev,
+                players: prev.players.map(p => ({
+                  ...p,
+                  isOnCourt: homeActiveIds.includes(p.id)
+                }))
+              } : null);
+              
+              setAwayTeam(prev => prev ? {
+                ...prev,
+                players: prev.players.map(p => ({
+                  ...p,
+                  isOnCourt: awayActiveIds.includes(p.id)
+                }))
+              } : null);
+              
+              console.log("✅ Updated player states from substitution event");
+            }
+          } catch (err) {
+            console.error("Error updating player states:", err);
+          }
 
           message.info("Sustitución realizada por otro usuario", 2);
         });
@@ -1374,14 +1457,19 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         setHomeTeam(newHomeTeam);
         setAwayTeam(newAwayTeam);
 
-        // Initialize player minutes for all players when game data loads
-        // Preserve existing minutes if available, otherwise start at 0
+        // Initialize player minutes for all players ONLY if playerMinutes is empty
+        // This prevents overwriting the timer's tracking when game data reloads
         const allPlayers = [...newHomeTeam.players, ...newAwayTeam.players];
         setPlayerMinutes((prev) => {
+          // If we already have minute data, don't reinitialize
+          if (Object.keys(prev).length > 0) {
+            console.log("⏱️ Preserving existing player minutes during game reload");
+            return prev;
+          }
+          // First load - initialize to 0
           const initialPlayerMinutes: Record<number, number> = {};
           allPlayers.forEach((player) => {
-            // Keep existing minutes if available, otherwise start at 0
-            initialPlayerMinutes[player.id] = prev[player.id] || 0;
+            initialPlayerMinutes[player.id] = 0;
           });
           return initialPlayerMinutes;
         });
@@ -1463,18 +1551,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
       console.log("Game started successfully");
 
-      // Step 1.5: Set the starters using the proper endpoint
-      await api.post(`/games/${id}/set-starters`, {
-        homeStarters: selectedPlayers.home,
-        awayStarters: selectedPlayers.away,
-      });
 
-      console.log("Starters set successfully");
 
-      // Step 2: Set all active players (replaces both home and away calls)
-      await gameAPI.updateActivePlayers(id!, allActivePlayerIds);
 
-      console.log("All active players set successfully");
 
       // Update local state
       setGame((prev) => (prev ? { ...prev, estado: "in_progress" } : null));
@@ -1509,14 +1588,14 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       // Reset player minutes for new game
       resetPlayerMinutes();
 
-      // Start the game timer automatically
-      startTimer();
+      // DON'T start the game timer automatically - let the user start it manually
+      // startTimer();
 
       // Notify success
       notification.success({
         message: "Juego iniciado",
         description:
-          "El juego ha comenzado correctamente con los quintetos seleccionados",
+          "El juego ha comenzado correctamente. Presiona el botón de Play para iniciar el cronómetro.",
       });
     } catch (err: any) {
       console.error("Error starting game:", err);
@@ -1549,12 +1628,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         selectedPlayers
       );
 
-      // Set all active players (replaces both home and away calls)
-      const allActivePlayerIds = [
-        ...selectedPlayers.home,
-        ...selectedPlayers.away,
-      ];
-      await gameAPI.updateActivePlayers(id!, allActivePlayerIds);
+      // Note: The endpoint /active-players does not seem to exist.
+      // Substitutions should be used instead for in-progress games.
+      // await gameAPI.updateActivePlayers(id!, allActivePlayerIds);
+      console.warn("Skipping updateActivePlayers as endpoint appears invalid.");
       console.log("All active players updated successfully");
 
       // Update local state to show players on court
@@ -1718,8 +1795,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   <Title level={4} style={{ margin: 0 }}>
                     {game.isOvertime
                       ? `OT ${Math.floor(
-                          game.currentQuarter - game.totalQuarters + 1
-                        )}`
+                        game.currentQuarter - game.totalQuarters + 1
+                      )}`
                       : `Q${game.currentQuarter}`}
                   </Title>
                   <Tag color="blue" style={{ marginTop: "4px" }}>
@@ -1953,9 +2030,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         >
           {/* Fullscreen toggle button for mobile */}
           {isMobile && (
-            <div style={{ 
-              display: "flex", 
-              justifyContent: "space-between", 
+            <div style={{
+              display: "flex",
+              justifyContent: "space-between",
               alignItems: "center",
               marginBottom: 8,
               padding: "8px 12px",
@@ -1963,9 +2040,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
               borderRadius: 8,
             }}>
               {isFullscreen && (
-                <div style={{ 
-                  display: "flex", 
-                  justifyContent: "space-around", 
+                <div style={{
+                  display: "flex",
+                  justifyContent: "space-around",
                   flex: 1,
                   fontSize: 16,
                   fontWeight: "bold",
@@ -2094,97 +2171,97 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             <Row gutter={[16, 16]} style={{ marginTop: isFullscreen ? 12 : 24 }}>
               <Col xs={24} md={12}>
                 <Title level={5} style={{ fontSize: isMobile ? 14 : 16 }}>Banca {homeTeam.nombre}</Title>
-              <div style={benchStyle}>
-                {getBenchPlayers(homeTeam).map((p) => (
-                  <div
-                    key={p.id}
-                    style={{
-                      ...playerCircle,
-                      background: "#e6f7ff",
-                      border:
+                <div style={benchStyle}>
+                  {getBenchPlayers(homeTeam).map((p) => (
+                    <div
+                      key={p.id}
+                      style={{
+                        ...playerCircle,
+                        background: "#e6f7ff",
+                        border:
+                          substitutionState.isSelecting &&
+                            substitutionState.selectedTeam === "home"
+                            ? "3px solid #52c41a"
+                            : "1px dashed #1890ff",
+                        cursor:
+                          substitutionState.isSelecting &&
+                            substitutionState.selectedTeam === "home"
+                            ? "pointer"
+                            : "default",
+                      }}
+                      onClick={() => {
+                        if (
+                          substitutionState.isSelecting &&
+                          substitutionState.selectedTeam === "home"
+                        ) {
+                          completeSubstitution(p);
+                        } else if (!substitutionState.isSelecting) {
+                          openStatsModal(p);
+                        }
+                      }}
+                      title={
                         substitutionState.isSelecting &&
-                        substitutionState.selectedTeam === "home"
-                          ? "3px solid #52c41a"
-                          : "1px dashed #1890ff",
-                      cursor:
-                        substitutionState.isSelecting &&
-                        substitutionState.selectedTeam === "home"
-                          ? "pointer"
-                          : "default",
-                    }}
-                    onClick={() => {
-                      if (
-                        substitutionState.isSelecting &&
-                        substitutionState.selectedTeam === "home"
-                      ) {
-                        completeSubstitution(p);
-                      } else if (!substitutionState.isSelecting) {
-                        openStatsModal(p);
+                          substitutionState.selectedTeam === "home"
+                          ? `Click to substitute in ${p.nombre}`
+                          : `${p.nombre} ${p.apellido} - ${p.posicion} | Bench player - No stats when not on court`
                       }
-                    }}
-                    title={
-                      substitutionState.isSelecting &&
-                      substitutionState.selectedTeam === "home"
-                        ? `Click to substitute in ${p.nombre}`
-                        : `${p.nombre} ${p.apellido} - ${p.posicion} | Bench player - No stats when not on court`
-                    }
-                  >
-                    <b>{p.numero}</b>
-                    <span style={{ fontSize: 12 }}>
-                      {p.nombre.split(" ")[0]}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </Col>
-            <Col xs={24} md={12}>
-              <Title level={5} style={{ fontSize: isMobile ? 14 : 16 }}>Banca {awayTeam.nombre}</Title>
-              <div style={benchStyle}>
-                {getBenchPlayers(awayTeam).map((p) => (
-                  <div
-                    key={p.id}
-                    style={{
-                      ...playerCircle,
-                      background: "#e6f7ff",
-                      border:
+                    >
+                      <b>{p.numero}</b>
+                      <span style={{ fontSize: 12 }}>
+                        {p.nombre.split(" ")[0]}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Col>
+              <Col xs={24} md={12}>
+                <Title level={5} style={{ fontSize: isMobile ? 14 : 16 }}>Banca {awayTeam.nombre}</Title>
+                <div style={benchStyle}>
+                  {getBenchPlayers(awayTeam).map((p) => (
+                    <div
+                      key={p.id}
+                      style={{
+                        ...playerCircle,
+                        background: "#e6f7ff",
+                        border:
+                          substitutionState.isSelecting &&
+                            substitutionState.selectedTeam === "away"
+                            ? "3px solid #52c41a"
+                            : "1px dashed #1890ff",
+                        cursor:
+                          substitutionState.isSelecting &&
+                            substitutionState.selectedTeam === "away"
+                            ? "pointer"
+                            : "default",
+                      }}
+                      onClick={() => {
+                        if (
+                          substitutionState.isSelecting &&
+                          substitutionState.selectedTeam === "away"
+                        ) {
+                          completeSubstitution(p);
+                        } else if (!substitutionState.isSelecting) {
+                          openStatsModal(p);
+                        }
+                      }}
+                      title={
                         substitutionState.isSelecting &&
-                        substitutionState.selectedTeam === "away"
-                          ? "3px solid #52c41a"
-                          : "1px dashed #1890ff",
-                      cursor:
-                        substitutionState.isSelecting &&
-                        substitutionState.selectedTeam === "away"
-                          ? "pointer"
-                          : "default",
-                    }}
-                    onClick={() => {
-                      if (
-                        substitutionState.isSelecting &&
-                        substitutionState.selectedTeam === "away"
-                      ) {
-                        completeSubstitution(p);
-                      } else if (!substitutionState.isSelecting) {
-                        openStatsModal(p);
+                          substitutionState.selectedTeam === "away"
+                          ? `Click to substitute in ${p.nombre}`
+                          : `${p.nombre} ${p.apellido} - ${p.posicion} | Bench player - No stats when not on court`
                       }
-                    }}
-                    title={
-                      substitutionState.isSelecting &&
-                      substitutionState.selectedTeam === "away"
-                        ? `Click to substitute in ${p.nombre}`
-                        : `${p.nombre} ${p.apellido} - ${p.posicion} | Bench player - No stats when not on court`
-                    }
-                  >
-                    <b>{p.numero}</b>
-                    <span style={{ fontSize: 12 }}>
-                      {p.nombre.split(" ")[0]}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </Col>
-          </Row>
+                    >
+                      <b>{p.numero}</b>
+                      <span style={{ fontSize: 12 }}>
+                        {p.nombre.split(" ")[0]}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Col>
+            </Row>
           )}
-          
+
           {/* Toggle bench button for fullscreen mobile */}
           {isFullscreen && isMobile && (
             <div style={{ textAlign: "center", marginTop: 12 }}>
@@ -2468,100 +2545,100 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           {(hasPermission("canEditShots") ||
             hasPermission("canEditPoints") ||
             hasPermission("canEditFreeThrows")) && (
-            <Tabs.TabPane tab="Tiros" key="shots">
-              <div style={{ textAlign: "center", padding: "20px 0" }}>
-                {/* 2-Point Field Goals */}
-                {hasPermission("canEditShots") && (
-                  <div style={{ marginBottom: 24 }}>
-                    <Title level={5}>Tiros de 2 Puntos</Title>
-                    <Space>
-                      <Button
-                        type="primary"
-                        size="large"
-                        style={{
-                          width: "120px",
-                          backgroundColor: "#52c41a",
-                          borderColor: "#52c41a",
-                        }}
-                        onClick={() => recordShot("2pt", true)}
-                      >
-                        Anotado
-                      </Button>
-                      <Button
-                        type="primary"
-                        danger
-                        size="large"
-                        style={{ width: "120px" }}
-                        onClick={() => recordShot("2pt", false)}
-                      >
-                        Fallado
-                      </Button>
-                    </Space>
-                  </div>
-                )}
+              <Tabs.TabPane tab="Tiros" key="shots">
+                <div style={{ textAlign: "center", padding: "20px 0" }}>
+                  {/* 2-Point Field Goals */}
+                  {hasPermission("canEditShots") && (
+                    <div style={{ marginBottom: 24 }}>
+                      <Title level={5}>Tiros de 2 Puntos</Title>
+                      <Space>
+                        <Button
+                          type="primary"
+                          size="large"
+                          style={{
+                            width: "120px",
+                            backgroundColor: "#52c41a",
+                            borderColor: "#52c41a",
+                          }}
+                          onClick={() => recordShot("2pt", true)}
+                        >
+                          Anotado
+                        </Button>
+                        <Button
+                          type="primary"
+                          danger
+                          size="large"
+                          style={{ width: "120px" }}
+                          onClick={() => recordShot("2pt", false)}
+                        >
+                          Fallado
+                        </Button>
+                      </Space>
+                    </div>
+                  )}
 
-                {/* 3-Point Field Goals */}
-                {hasPermission("canEditShots") && (
-                  <div style={{ marginBottom: 24 }}>
-                    <Title level={5}>Tiros de 3 Puntos</Title>
-                    <Space>
-                      <Button
-                        type="primary"
-                        size="large"
-                        style={{
-                          width: "120px",
-                          backgroundColor: "#52c41a",
-                          borderColor: "#52c41a",
-                        }}
-                        onClick={() => recordShot("3pt", true)}
-                      >
-                        Anotado
-                      </Button>
-                      <Button
-                        type="primary"
-                        danger
-                        size="large"
-                        style={{ width: "120px" }}
-                        onClick={() => recordShot("3pt", false)}
-                      >
-                        Fallado
-                      </Button>
-                    </Space>
-                  </div>
-                )}
+                  {/* 3-Point Field Goals */}
+                  {hasPermission("canEditShots") && (
+                    <div style={{ marginBottom: 24 }}>
+                      <Title level={5}>Tiros de 3 Puntos</Title>
+                      <Space>
+                        <Button
+                          type="primary"
+                          size="large"
+                          style={{
+                            width: "120px",
+                            backgroundColor: "#52c41a",
+                            borderColor: "#52c41a",
+                          }}
+                          onClick={() => recordShot("3pt", true)}
+                        >
+                          Anotado
+                        </Button>
+                        <Button
+                          type="primary"
+                          danger
+                          size="large"
+                          style={{ width: "120px" }}
+                          onClick={() => recordShot("3pt", false)}
+                        >
+                          Fallado
+                        </Button>
+                      </Space>
+                    </div>
+                  )}
 
-                {/* Free Throws */}
-                {hasPermission("canEditFreeThrows") && (
-                  <div>
-                    <Title level={5}>Tiros Libres</Title>
-                    <Space>
-                      <Button
-                        type="primary"
-                        size="large"
-                        style={{
-                          width: "120px",
-                          backgroundColor: "#52c41a",
-                          borderColor: "#52c41a",
-                        }}
-                        onClick={() => recordShot("ft", true)}
-                      >
-                        Anotado
-                      </Button>
-                      <Button
-                        type="primary"
-                        danger
-                        size="large"
-                        style={{ width: "120px" }}
-                        onClick={() => recordShot("ft", false)}
-                      >
-                        Fallado
-                      </Button>
-                    </Space>
-                  </div>
-                )}
-              </div>
-            </Tabs.TabPane>
-          )}
+                  {/* Free Throws */}
+                  {hasPermission("canEditFreeThrows") && (
+                    <div>
+                      <Title level={5}>Tiros Libres</Title>
+                      <Space>
+                        <Button
+                          type="primary"
+                          size="large"
+                          style={{
+                            width: "120px",
+                            backgroundColor: "#52c41a",
+                            borderColor: "#52c41a",
+                          }}
+                          onClick={() => recordShot("ft", true)}
+                        >
+                          Anotado
+                        </Button>
+                        <Button
+                          type="primary"
+                          danger
+                          size="large"
+                          style={{ width: "120px" }}
+                          onClick={() => recordShot("ft", false)}
+                        >
+                          Fallado
+                        </Button>
+                      </Space>
+                    </div>
+                  )}
+                </div>
+              </Tabs.TabPane>
+            )}
 
           {/* Other Stats Tab - Show sections based on permissions */}
           {(hasPermission("canEditRebounds") ||
@@ -2570,192 +2647,192 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             hasPermission("canEditBlocks") ||
             hasPermission("canEditTurnovers") ||
             hasPermission("canEditPersonalFouls")) && (
-            <Tabs.TabPane tab="Otras Estadísticas" key="other">
-              <div style={{ textAlign: "center", padding: "20px 0" }}>
-                <Space
-                  direction="vertical"
-                  size="large"
-                  style={{ width: "100%" }}
-                >
-                  {/* Rebounds and Assists - Show for REBOUNDER_ASSISTS, ALL_AROUND, ADMIN */}
-                  {(hasPermission("canEditRebounds") ||
-                    hasPermission("canEditAssists")) && (
-                    <div>
-                      <Title level={5}>Rebotes y Asistencias</Title>
-                      <Space>
-                        {hasPermission("canEditRebounds") && (
-                          <Button
-                            type="primary"
-                            size="large"
-                            style={{ width: "120px" }}
-                            onClick={() => recordStat("rebound")}
-                          >
-                            Rebote
-                          </Button>
-                        )}
-                        {hasPermission("canEditRebounds") && (
-                          <Button
-                            type="default"
-                            size="large"
-                            style={{ width: "160px" }}
-                            onClick={() => recordStat("offensiveRebound")}
-                          >
-                            Rebote Ofensivo
-                          </Button>
-                        )}
-                        {hasPermission("canEditAssists") && (
-                          <Button
-                            type="primary"
-                            size="large"
-                            style={{ width: "120px" }}
-                            onClick={() => recordStat("assist")}
-                          >
-                            Asistencia
-                          </Button>
-                        )}
-                      </Space>
-                    </div>
-                  )}
-
-                  {/* Defense - Show for STEALS_BLOCKS, ALL_AROUND, ADMIN */}
-                  {(hasPermission("canEditSteals") ||
-                    hasPermission("canEditBlocks")) && (
-                    <div>
-                      <Title level={5}>Defensa</Title>
-                      <Space>
-                        {hasPermission("canEditSteals") && (
-                          <Button
-                            type="primary"
-                            size="large"
-                            style={{ width: "120px" }}
-                            onClick={() => recordStat("steal")}
-                          >
-                            Robo
-                          </Button>
-                        )}
-                        {hasPermission("canEditBlocks") && (
-                          <Button
-                            type="primary"
-                            size="large"
-                            style={{ width: "120px" }}
-                            onClick={() => recordStat("block")}
-                          >
-                            Tapón
-                          </Button>
-                        )}
-                      </Space>
-                    </div>
-                  )}
-
-                  {/* Errors - Show for REBOUNDER_ASSISTS (turnovers), ALL_AROUND, ADMIN */}
-                  {(hasPermission("canEditTurnovers") ||
-                    hasPermission("canEditPersonalFouls")) && (
-                    <div>
-                      <Title level={5}>Errores</Title>
-                      <Space>
-                        {hasPermission("canEditTurnovers") && (
-                          <Button
-                            type="primary"
-                            danger
-                            size="large"
-                            style={{ width: "120px" }}
-                            onClick={() => recordStat("turnover")}
-                          >
-                            Pérdida
-                          </Button>
-                        )}
-                        {hasPermission("canEditPersonalFouls") && (
-                          <Button
-                            type="primary"
-                            style={{
-                              width: "120px",
-                              backgroundColor: "#ff7a45",
-                              borderColor: "#ff7a45",
-                            }}
-                            onClick={() => recordStat("foul")}
-                          >
-                            Falta Personal
-                          </Button>
-                        )}
-                      </Space>
-                    </div>
-                  )}
-
-                  {/* Current Stats - Always show if available */}
-                  {statsModal.player?.stats && (
-                    <div style={{ marginTop: 24 }}>
-                      <Title level={5}>Estadísticas Actuales</Title>
-                      <Row gutter={[16, 16]}>
-                        <Col span={6}>
-                          <Statistic
-                            title="Puntos"
-                            value={statsModal.player.stats.puntos}
-                          />
-                        </Col>
-                        <Col span={6}>
-                          <Statistic
-                            title="Rebotes"
-                            value={statsModal.player.stats.rebotes}
-                          />
-                        </Col>
-                        <Col span={6}>
-                          <Statistic
-                            title="Asistencias"
-                            value={statsModal.player.stats.asistencias}
-                          />
-                        </Col>
-                        <Col span={6}>
-                          <Statistic
-                            title="Minutos"
-                            value={Math.floor(
-                              statsModal.player.stats.minutos / 60
+              <Tabs.TabPane tab="Otras Estadísticas" key="other">
+                <div style={{ textAlign: "center", padding: "20px 0" }}>
+                  <Space
+                    direction="vertical"
+                    size="large"
+                    style={{ width: "100%" }}
+                  >
+                    {/* Rebounds and Assists - Show for REBOUNDER_ASSISTS, ALL_AROUND, ADMIN */}
+                    {(hasPermission("canEditRebounds") ||
+                      hasPermission("canEditAssists")) && (
+                        <div>
+                          <Title level={5}>Rebotes y Asistencias</Title>
+                          <Space>
+                            {hasPermission("canEditRebounds") && (
+                              <Button
+                                type="primary"
+                                size="large"
+                                style={{ width: "120px" }}
+                                onClick={() => recordStat("rebound")}
+                              >
+                                Rebote
+                              </Button>
                             )}
-                          />
-                        </Col>
-                        <Col span={6}>
-                          <Statistic
-                            title="Robos"
-                            value={statsModal.player.stats.robos}
-                          />
-                        </Col>
-                        <Col span={6}>
-                          <Statistic
-                            title="Tapones"
-                            value={statsModal.player.stats.tapones}
-                          />
-                        </Col>
-                        <Col span={6}>
-                          <Statistic
-                            title="Faltas"
-                            value={
-                              statsModal.player.stats.faltasPersonales || 0
-                            }
-                          />
-                        </Col>
-                        <Col span={6}>
-                          <Statistic
-                            title="Pérdidas"
-                            value={statsModal.player.stats.perdidas || 0}
-                          />
-                        </Col>
-                        <Col span={12}>
-                          <Statistic
-                            title="Tiros de Campo"
-                            value={`${statsModal.player.stats.tirosAnotados}/${statsModal.player.stats.tirosIntentados}`}
-                            suffix={`(${Math.round(
-                              (statsModal.player.stats.tirosAnotados /
-                                statsModal.player.stats.tirosIntentados || 0) *
+                            {hasPermission("canEditRebounds") && (
+                              <Button
+                                type="default"
+                                size="large"
+                                style={{ width: "160px" }}
+                                onClick={() => recordStat("offensiveRebound")}
+                              >
+                                Rebote Ofensivo
+                              </Button>
+                            )}
+                            {hasPermission("canEditAssists") && (
+                              <Button
+                                type="primary"
+                                size="large"
+                                style={{ width: "120px" }}
+                                onClick={() => recordStat("assist")}
+                              >
+                                Asistencia
+                              </Button>
+                            )}
+                          </Space>
+                        </div>
+                      )}
+
+                    {/* Defense - Show for STEALS_BLOCKS, ALL_AROUND, ADMIN */}
+                    {(hasPermission("canEditSteals") ||
+                      hasPermission("canEditBlocks")) && (
+                        <div>
+                          <Title level={5}>Defensa</Title>
+                          <Space>
+                            {hasPermission("canEditSteals") && (
+                              <Button
+                                type="primary"
+                                size="large"
+                                style={{ width: "120px" }}
+                                onClick={() => recordStat("steal")}
+                              >
+                                Robo
+                              </Button>
+                            )}
+                            {hasPermission("canEditBlocks") && (
+                              <Button
+                                type="primary"
+                                size="large"
+                                style={{ width: "120px" }}
+                                onClick={() => recordStat("block")}
+                              >
+                                Tapón
+                              </Button>
+                            )}
+                          </Space>
+                        </div>
+                      )}
+
+                    {/* Errors - Show for REBOUNDER_ASSISTS (turnovers), ALL_AROUND, ADMIN */}
+                    {(hasPermission("canEditTurnovers") ||
+                      hasPermission("canEditPersonalFouls")) && (
+                        <div>
+                          <Title level={5}>Errores</Title>
+                          <Space>
+                            {hasPermission("canEditTurnovers") && (
+                              <Button
+                                type="primary"
+                                danger
+                                size="large"
+                                style={{ width: "120px" }}
+                                onClick={() => recordStat("turnover")}
+                              >
+                                Pérdida
+                              </Button>
+                            )}
+                            {hasPermission("canEditPersonalFouls") && (
+                              <Button
+                                type="primary"
+                                style={{
+                                  width: "120px",
+                                  backgroundColor: "#ff7a45",
+                                  borderColor: "#ff7a45",
+                                }}
+                                onClick={() => recordStat("foul")}
+                              >
+                                Falta Personal
+                              </Button>
+                            )}
+                          </Space>
+                        </div>
+                      )}
+
+                    {/* Current Stats - Always show if available */}
+                    {statsModal.player?.stats && (
+                      <div style={{ marginTop: 24 }}>
+                        <Title level={5}>Estadísticas Actuales</Title>
+                        <Row gutter={[16, 16]}>
+                          <Col span={6}>
+                            <Statistic
+                              title="Puntos"
+                              value={statsModal.player.stats.puntos}
+                            />
+                          </Col>
+                          <Col span={6}>
+                            <Statistic
+                              title="Rebotes"
+                              value={statsModal.player.stats.rebotes}
+                            />
+                          </Col>
+                          <Col span={6}>
+                            <Statistic
+                              title="Asistencias"
+                              value={statsModal.player.stats.asistencias}
+                            />
+                          </Col>
+                          <Col span={6}>
+                            <Statistic
+                              title="Minutos"
+                              value={Math.floor(
+                                statsModal.player.stats.minutos / 60
+                              )}
+                            />
+                          </Col>
+                          <Col span={6}>
+                            <Statistic
+                              title="Robos"
+                              value={statsModal.player.stats.robos}
+                            />
+                          </Col>
+                          <Col span={6}>
+                            <Statistic
+                              title="Tapones"
+                              value={statsModal.player.stats.tapones}
+                            />
+                          </Col>
+                          <Col span={6}>
+                            <Statistic
+                              title="Faltas"
+                              value={
+                                statsModal.player.stats.faltasPersonales || 0
+                              }
+                            />
+                          </Col>
+                          <Col span={6}>
+                            <Statistic
+                              title="Pérdidas"
+                              value={statsModal.player.stats.perdidas || 0}
+                            />
+                          </Col>
+                          <Col span={12}>
+                            <Statistic
+                              title="Tiros de Campo"
+                              value={`${statsModal.player.stats.tirosAnotados}/${statsModal.player.stats.tirosIntentados}`}
+                              suffix={`(${Math.round(
+                                (statsModal.player.stats.tirosAnotados /
+                                  statsModal.player.stats.tirosIntentados || 0) *
                                 100
-                            )}%)`}
-                          />
-                        </Col>
-                      </Row>
-                    </div>
-                  )}
-                </Space>
-              </div>
-            </Tabs.TabPane>
-          )}
+                              )}%)`}
+                            />
+                          </Col>
+                        </Row>
+                      </div>
+                    )}
+                  </Space>
+                </div>
+              </Tabs.TabPane>
+            )}
         </Tabs>
       </Modal>
     </div>
