@@ -26,87 +26,23 @@ import permissionService from "../api/permissionService";
 import api from "../api/axios";
 import { useAuth } from "../contexts/AuthContext";
 import socketService from "../api/socketService";
+import { GameClock, ScoreBoard, Court, BenchArea, StatsModal, LineupModal } from "../components/game";
+import { useSubstitutions } from "../hooks/useSubstitutions";
+import { useLineupSelection } from "../hooks/useLineupSelection";
+import type { Player, Team, Game as GameType } from "../types/game.types";
 
 const { Title, Text } = Typography;
 
-// Simple styles for court and benches
-const courtStyle: React.CSSProperties = {
-  width: "100%",
-  height: "60vh",
-  background: "linear-gradient(90deg, #e0c68a 0%, #f7e7b6 100%)",
-  border: "4px solid #b8860b",
-  borderRadius: 24,
-  position: "relative",
-  margin: "32px 0",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-};
+// Note: courtStyle, playerCircle, and benchStyle have been moved to their respective components
 
-const playerCircle: React.CSSProperties = {
-  width: 80,
-  height: 80,
-  borderRadius: "50%",
-  background: "#fff",
-  border: "3px solid #1890ff",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  cursor: "pointer",
-  margin: 8,
-  boxShadow: "0 4px 12px #0003",
-  transition: "all 0.3s ease",
-};
-
-const benchStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "row",
-  flexWrap: "wrap",
-  gap: 8,
-  margin: "8px 0",
-};
-
-interface Player {
-  id: number;
-  nombre: string;
-  apellido: string;
-  numero: number;
-  posicion: string;
-  teamId: number;
-  stats?: {
-    puntos: number;
-    rebotes: number;
-    asistencias: number;
-    robos: number;
-    tapones: number;
-    tirosIntentados: number;
-    tirosAnotados: number;
-    tiros3Intentados: number;
-    tiros3Anotados: number;
-    minutos: number;
-    plusMinus: number;
-    faltasPersonales?: number;
-    perdidas?: number;
-  };
-  isOnCourt?: boolean;
-}
-
-interface Team {
-  id: number;
-  nombre: string;
-  logo?: string;
-  players: Player[];
-  score: number;
-}
-
+// Game interface for API response
 interface Game {
   id: number;
   teamHomeId: number;
   teamAwayId: number;
   eventId: number;
   fecha: string;
-  estado: "scheduled" | "in_progress" | "finished";
+  estado: 'scheduled' | 'in_progress' | 'paused' | 'finished';
   gameTime: number;
   homeScore: number;
   awayScore: number;
@@ -115,8 +51,8 @@ interface Game {
   totalQuarters: number;
   overtimeLength: number;
   quarterTime: number;
-  isOvertime: boolean;
-  event: {
+  isOvertime?: boolean;
+  event?: {
     id: number;
     nombre: string;
     fechaInicio: string;
@@ -173,23 +109,30 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   
   const [isLineupModalVisible, setIsLineupModalVisible] = useState(false);
 
-  const [selectedPlayers, setSelectedPlayers] = useState<{
-    home: number[];
-    away: number[];
-  }>({ home: [], away: [] });
+  // Lineup selection hook
+  const {
+    selectedPlayers,
+    togglePlayerSelection,
+    setSelection: setSelectedPlayers,
+  } = useLineupSelection({ maxPlayers: 5 });
+
   const QUARTER_LENGTH = 600; // 10 minutes in seconds
   const [gameTime, setGameTime] = useState(() => {
     const savedTime = localStorage.getItem(`gameTime_${id}`);
     return savedTime ? parseInt(savedTime) : QUARTER_LENGTH;
   });
-  const [isClockRunning, setIsClockRunning] = useState(false);
+  const [isClockRunning, setIsClockRunning] = useState(() => {
+    const saved = localStorage.getItem(`game-${id}-clockRunning`);
+    return saved === 'true';
+  });
   const [timerInterval, setTimerInterval] = useState<ReturnType<
     typeof setInterval
   > | null>(null);
-  // Track player minutes in milliseconds for backend compatibility
-  const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>(
-    {}
-  );
+  
+  // Track player minutes in milliseconds - will be restored from localStorage in useEffect
+  // NOTE: We can't use localStorage in useState initializer because 'id' from useParams
+  // might not be available yet during initial render
+  const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>({});
   // Track player plus-minus: {playerId: plusMinusValue}
   const [playerPlusMinus, setPlayerPlusMinus] = useState<
     Record<number, number>
@@ -202,6 +145,86 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
   // Track last timer update for precise time tracking using useRef to avoid closure issues
   const lastTimerUpdateRef = useRef<number>(Date.now());
+  
+  // ✅ NEW: Ref to track clock running state for use inside interval callbacks
+  const isClockRunningRef = useRef<boolean>(isClockRunning);
+  
+  // Auto-save interval ref
+  const autoSaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Restore playerMinutes from localStorage when component mounts (once id is available)
+  useEffect(() => {
+    if (id &&Object.keys(playerMinutes).length === 0) {
+      const saved = localStorage.getItem(`game-${id}-playerMinutes`);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          console.log(`📥 INITIAL LOAD: Restored player minutes from localStorage:`, parsed);
+          setPlayerMinutes(parsed);
+        } catch (e) {
+          console.error('Error parsing saved player minutes:', e);
+        }
+      }
+    }
+  }, [id]); // Only run when id becomes available
+
+  // ✅ NEW: Sync isClockRunning state with ref for use in interval callbacks
+  useEffect(() => {
+    isClockRunningRef.current = isClockRunning;
+  }, [isClockRunning]);
+
+  // Save playerMinutes to localStorage whenever it changes
+  useEffect(() => {
+    if (id && Object.keys(playerMinutes).length > 0) {
+      localStorage.setItem(`game-${id}-playerMinutes`, JSON.stringify(playerMinutes));
+      console.log(`💾 Saved player minutes to localStorage`);
+    }
+  }, [playerMinutes, id]);
+
+  // Save gameTime to localStorage whenever it changes
+  useEffect(() => {
+    if (id && game) {
+      localStorage.setItem(`gameTime_${id}`, gameTime.toString());
+    }
+  }, [gameTime, id, game]);
+
+  // Save clock running state to localStorage
+  useEffect(() => {
+    if (id) {
+      localStorage.setItem(`game-${id}-clockRunning`, isClockRunning.toString());
+    }
+  }, [isClockRunning, id]);
+  
+  // Save active players (isOnCourt) to localStorage whenever teams change
+  useEffect(() => {
+    if (id && homeTeam && awayTeam) {
+      const activePlayers = {
+        home: homeTeam.players.filter(p => p.isOnCourt).map(p => p.id),
+        away: awayTeam.players.filter(p => p.isOnCourt).map(p => p.id)
+      };
+      
+      // Only save if we actually have players on court, or if it's the initial lineup setup
+      // Don't save empty arrays for a game in progress (it would overwrite valid data)
+      if (activePlayers.home.length > 0 || activePlayers.away.length > 0 || game?.estado === 'scheduled') {
+        localStorage.setItem(`game-${id}-activePlayers`, JSON.stringify(activePlayers));
+        console.log(`💾 Saved active players to localStorage:`, activePlayers);
+      } else if (game?.estado === 'in_progress') {
+        console.log(`⚠️ Skipping save of empty active players for in_progress game`);
+      }
+    }
+  }, [homeTeam, awayTeam, id, game?.estado]);
+  
+  // Clean up localStorage when game finishes
+  useEffect(() => {
+    if (game?.estado === 'finished' && id) {
+      console.log('🧽 Cleaning up localStorage for finished game');
+      localStorage.removeItem(`game-${id}-playerMinutes`);
+      localStorage.removeItem(`gameTime_${id}`);
+      localStorage.removeItem(`game-${id}-clockRunning`);
+      localStorage.removeItem(`game-${id}-plusminus`);
+      localStorage.removeItem(`game-${id}-activePlayers`);
+    }
+  }, [game?.estado, id]);
 
   // Save plus-minus to localStorage whenever it changes
   useEffect(() => {
@@ -230,20 +253,57 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     activeTab: "shots",
   });
 
-  const [substitutionState, setSubstitutionState] = useState<{
-    isSelecting: boolean;
-    selectedTeam: "home" | "away" | null;
-    playerOut: Player | null;
-  }>({
-    isSelecting: false,
-    selectedTeam: null,
-    playerOut: null,
-  });
+  // Substitution hook
+  const { substitutionState, startSubstitution, cancelSubstitution, completeSubstitution } =
+    useSubstitutions({
+      gameId: id,
+      homeTeam,
+      awayTeam,
+      gameTime,
+      quarterLength: QUARTER_LENGTH,
+      playerMinutes,
+      hasPermission,
+      onTeamUpdate: (team, players) => {
+        if (team === 'home') {
+          setHomeTeam((prev) => (prev ? { ...prev, players } : null));
+        } else {
+          setAwayTeam((prev) => (prev ? { ...prev, players } : null));
+        }
+      },
+    });
 
   // Fullscreen mode for mobile
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showBenchInFullscreen, setShowBenchInFullscreen] = useState(false);
   const isMobile = window.innerWidth < 768;
+
+  // Debug: Log team state changes
+  useEffect(() => {
+    if (homeTeam && awayTeam) {
+      console.log("🔍 TEAMS STATE UPDATE:", {
+        homeTeam: {
+          name: homeTeam.nombre,
+          totalPlayers: homeTeam.players?.length || 0,
+          playersOnCourt: homeTeam.players?.filter((p: Player) => p.isOnCourt).length || 0,
+          players: homeTeam.players?.map((p: Player) => ({
+            id: p.id,
+            name: `#${p.numero} ${p.nombre}`,
+            isOnCourt: p.isOnCourt
+          }))
+        },
+        awayTeam: {
+          name: awayTeam.nombre,
+          totalPlayers: awayTeam.players?.length || 0,
+          playersOnCourt: awayTeam.players?.filter((p: Player) => p.isOnCourt).length || 0,
+          players: awayTeam.players?.map((p: Player) => ({
+            id: p.id,
+            name: `#${p.numero} ${p.nombre}`,
+            isOnCourt: p.isOnCourt
+          }))
+        }
+      });
+    }
+  }, [homeTeam, awayTeam]);
 
   // Get 5 on-court and bench players for each team
   const getOnCourtPlayers = (team: Team) => {
@@ -308,193 +368,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     setStatsModal({ visible: false, player: null, activeTab: "shots" });
   };
 
-  // Handle substitutions
-  const startSubstitution = (player: Player, team: "home" | "away") => {
-    if (!hasPermission("canMakeSubstitutions")) {
-      message.error("No tienes permisos para hacer sustituciones");
-      return;
-    }
-
-    // Sustituciones permitidas en cualquier momento (timer corriendo o pausado)
-    setSubstitutionState({
-      isSelecting: true,
-      selectedTeam: team,
-      playerOut: player,
-    });
-    message.info({
-      content: `${player.nombre} ${player.apellido} seleccionado. Elige un jugador del banco para sustituir.`,
-      duration: 3,
-    });
-  };
-
-  const completeSubstitution = async (playerIn: Player) => {
-    if (!game || !substitutionState.playerOut) {
-      message.error("Missing game or player data for substitution");
-      return;
-    }
-
-    // Basic validation
-    if (playerIn.id === substitutionState.playerOut.id) {
-      message.error("Cannot substitute a player with themselves");
-      return;
-    }
-
-    // Verify the players' status
-    const targetTeam =
-      substitutionState.selectedTeam === "home" ? homeTeam : awayTeam;
-    const actualPlayerOut = targetTeam?.players.find(
-      (p) => p.id === substitutionState.playerOut?.id
-    );
-    const actualPlayerIn = targetTeam?.players.find(
-      (p) => p.id === playerIn.id
-    );
-
-    if (!actualPlayerOut?.isOnCourt) {
-      message.error("Selected player to substitute out is not on the court");
-      return;
-    }
-
-    if (actualPlayerIn?.isOnCourt) {
-      message.error("Selected player to substitute in is already on the court");
-      return;
-    }
-
-    if (
-      !substitutionState.selectedTeam ||
-      (substitutionState.selectedTeam === "home" &&
-        playerIn.teamId !== homeTeam?.id) ||
-      (substitutionState.selectedTeam === "away" &&
-        playerIn.teamId !== awayTeam?.id)
-    ) {
-      message.error("Cannot substitute players from different teams");
-      return;
-    }
-
-    try {
-      const currentGameTime = QUARTER_LENGTH - gameTime; // Convert countdown time to elapsed time
-
-      const substitutionData = {
-        gameId: Number(game.id),
-        playerOutId: Number(substitutionState.playerOut.id),
-        playerInId: Number(playerIn.id),
-        gameTime: currentGameTime,
-      };
-
-      console.log("Making substitution with:", substitutionData);
-
-      // Determine which team endpoint to use
-      let response;
-      if (substitutionState.selectedTeam === "home") {
-        response = await gameAPI.makeHomeSubstitution(substitutionData);
-      } else {
-        response = await gameAPI.makeAwaySubstitution(substitutionData);
-      }
-
-      console.log("Substitution response:", response);
-
-      // Update the UI to reflect the substitution
-      if (response.data) {
-        const playerOutName =
-          substitutionState.playerOut?.nombre +
-          " " +
-          substitutionState.playerOut?.apellido;
-        const playerInName = playerIn.nombre + " " + playerIn.apellido;
-
-        // Show detailed success message
-        message.success({
-          content: `Substitución exitosa: ${playerOutName} sale, ${playerInName} entra`,
-          duration: 4,
-        });
-
-        // Update local team state immediately for better UX
-        console.log(`🔄 Updating team states for substitution...`);
-        console.log(`   Player OUT: ${substitutionState.playerOut?.nombre} (ID: ${substitutionState.playerOut?.id}) - Current minutes: ${Math.round((playerMinutes[substitutionState.playerOut?.id || 0] || 0) / 1000)}s`);
-        console.log(`   Player IN: ${playerIn.nombre} (ID: ${playerIn.id}) - Current minutes: ${Math.round((playerMinutes[playerIn.id] || 0) / 1000)}s`);
-        
-        if (substitutionState.selectedTeam === "home" && homeTeam) {
-          const updatedHomePlayers = homeTeam.players.map((p) => {
-            if (p.id === playerIn.id) {
-              console.log(`   ✅ Setting ${p.nombre} as ON COURT`);
-              return { ...p, isOnCourt: true };
-            }
-            if (p.id === substitutionState.playerOut?.id) {
-              console.log(`   ⛔ Setting ${p.nombre} as OFF COURT`);
-              return { ...p, isOnCourt: false };
-            }
-            return p;
-          });
-          setHomeTeam({ ...homeTeam, players: updatedHomePlayers });
-        } else if (substitutionState.selectedTeam === "away" && awayTeam) {
-          const updatedAwayPlayers = awayTeam.players.map((p) => {
-            if (p.id === playerIn.id) {
-              console.log(`   ✅ Setting ${p.nombre} as ON COURT`);
-              return { ...p, isOnCourt: true };
-            }
-            if (p.id === substitutionState.playerOut?.id) {
-              console.log(`   ⛔ Setting ${p.nombre} as OFF COURT`);
-              return { ...p, isOnCourt: false };
-            }
-            return p;
-          });
-          setAwayTeam({ ...awayTeam, players: updatedAwayPlayers });
-        }
-
-        // Reset substitution state
-        setSubstitutionState({
-          isSelecting: false,
-          selectedTeam: null,
-          playerOut: null,
-        });
-
-        // Emit socket event to notify other users
-        socketService.makeSubstitution({
-          gameId: Number(game.id),
-          playerInId: playerIn.id,
-          playerOutId: substitutionState.playerOut.id,
-          timestamp: new Date().toISOString(),
-        });
-
-        // DO NOT call loadGameData() - it resets player minutes and causes state issues
-        // The local state updates above are sufficient
-
-        console.log(
-          `✅ Substitution completed: ${playerOutName} → ${playerInName}`
-        );
-      }
-    } catch (error: any) {
-      console.error("Substitution error:", error);
-
-      // Show specific error messages based on backend response
-      const errorMessage =
-        error?.response?.data?.error ||
-        error?.message ||
-        "Failed to complete substitution";
-
-      message.error({
-        content: `Error en substitución: ${errorMessage}`,
-        duration: 4,
-      });
-
-      // Reset substitution state on error
-      setSubstitutionState({
-        isSelecting: false,
-        selectedTeam: null,
-        playerOut: null,
-      });
-    }
-  };
-
-  const cancelSubstitution = () => {
-    setSubstitutionState({
-      isSelecting: false,
-      selectedTeam: null,
-      playerOut: null,
-    });
-    message.info({
-      content: "Sustitución cancelada",
-      duration: 2,
-    });
-  };
+  // Substitution functions now come from useSubstitutions hook
 
   const recordStat = async (
     statType: "assist" | "rebound" | "offensiveRebound" | "steal" | "block" | "turnover" | "foul"
@@ -672,6 +546,49 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     }
   }, [gameTime, id, game]);
 
+  // Helper function to save player minutes to backend
+  const savePlayerMinutesToBackend = async (silent = false) => {
+    if (!game || !homeTeam || !awayTeam) {
+      if (!silent) {
+        message.error("Cannot save game state: missing game or team data");
+      }
+      return;
+    }
+
+    try {
+      if (!silent) {
+        console.log("💾 === SAVING PLAYER MINUTES TO BACKEND ===");
+      } else {
+        console.log("💾 Auto-saving player minutes to backend...");
+      }
+      
+      const playerMinutesPayload: Record<string, number> = {};
+      const allPlayers = [...homeTeam.players, ...awayTeam.players];
+
+      allPlayers.forEach((player) => {
+        const millisecondsPlayed = playerMinutes[player.id] || 0;
+        playerMinutesPayload[player.id.toString()] = millisecondsPlayed;
+        if (!silent && millisecondsPlayed > 0) {
+          console.log(`  ${player.nombre} ${player.apellido} (ID: ${player.id}): ${Math.round(millisecondsPlayed/1000)} seconds`);
+        }
+      });
+
+      await gameAPI.updatePlayerMinutes(game.id, playerMinutesPayload);
+      
+      if (!silent) {
+        console.log("✅ Player minutes saved successfully to backend");
+        message.success("Minutos guardados exitosamente");
+      } else {
+        console.log("✅ Auto-save completed");
+      }
+    } catch (error: any) {
+      console.error("Error saving player minutes:", error);
+      if (!silent) {
+        message.error(`Failed to save player minutes: ${error?.message || 'Unknown error'}`);
+      }
+    }
+  };
+
   // Format time as MM:SS
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -681,6 +598,12 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
   // Reset player minutes when game starts
   const resetPlayerMinutes = () => {
+    // ✅ SAFETY: Only reset if game hasn't started yet
+    if (game?.estado !== 'scheduled') {
+      console.log('⚠️ Cannot reset player minutes - game already in progress');
+      return;
+    }
+    
     const newPlayerMinutes: Record<number, number> = {};
 
     // Initialize minutes for all players to 0
@@ -691,6 +614,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     }
 
     setPlayerMinutes(newPlayerMinutes);
+    console.log('✅ Player minutes reset to 0 (game in scheduled state)');
   };
 
   // Timer management functions (following documentation)
@@ -721,6 +645,17 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     console.log(`⏱️ Current game time: ${formatTime(gameTime)}`);
     console.log(`⏱️ Current player minutes:`, Object.entries(playerMinutes).map(([id, ms]) => `Player ${id}: ${Math.round(ms/1000)}s`).join(', '));
     console.log(`⏱️ ========================================`);
+    
+    // Start auto-save to BD every 10 seconds
+    if (autoSaveIntervalRef.current) {
+      clearInterval(autoSaveIntervalRef.current);
+    }
+    
+    autoSaveIntervalRef.current = setInterval(() => {
+      savePlayerMinutesToBackend(true); // silent mode
+    }, 10000); // Auto-save every 10 seconds
+    
+    console.log("💾 Auto-save to BD enabled (every 10 seconds)");
 
     const interval = setInterval(async () => {
       setGameTime((prev) => {
@@ -735,6 +670,12 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           const currentAwayTeam = awayTeamRef.current;
           
           if (currentHomeTeam && currentAwayTeam) {
+            // ✅ CRITICAL FIX: Only update player minutes if clock is actually running
+            if (!isClockRunningRef.current) {
+              console.log('⏸️ Clock paused - skipping player minutes update');
+              return newTime;
+            }
+            
             const now = Date.now();
             const elapsed = now - lastTimerUpdateRef.current;
             
@@ -791,6 +732,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     console.log("Created new interval with ID:", interval);
     setTimerInterval(interval);
     setIsClockRunning(true);
+    
+    // ✅ REMOVED: Duplicate auto-save interval (already created earlier in startTimer)
+    // The auto-save interval is created at the beginning of startTimer function
   };
 
   // Handle quarter end - automatically go to next quarter
@@ -832,105 +776,28 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     console.log("⏹️ STOPPING TIMER - Plus-minus update process starting...");
     console.log("Current playerPlusMinus state:", playerPlusMinus);
     console.log("Stopping timer. Current interval ID:", timerInterval);
+    
+    // Clear the game timer interval
     if (timerInterval) {
       clearInterval(timerInterval);
       setTimerInterval(null);
       console.log("Timer interval cleared and set to null");
     }
+    
+    // Clear the auto-save interval
+    if (autoSaveIntervalRef.current) {
+      clearInterval(autoSaveIntervalRef.current);
+      autoSaveIntervalRef.current = null;
+      console.log("⏹️ Auto-save interval stopped");
+    }
+    
     setIsClockRunning(false);
 
     // Save tracked minutes to backend when timer stops
-    if (!game || !homeTeam || !awayTeam) {
-      message.error("Cannot save game state: missing game or team data");
-      return;
-    }
+    await savePlayerMinutesToBackend(false);
 
-    try {
-      console.log("💾 === SAVING PLAYER MINUTES TO BACKEND ===");
-      console.log("Current playerMinutes state:", playerMinutes);
-
-      // Convert playerMinutes to the format expected by the bulk endpoint
-      // The endpoint expects {playerId: milliseconds} as strings for keys
-      const playerMinutesPayload: Record<string, number> = {};
-      const allPlayers = [...homeTeam.players, ...awayTeam.players];
-
-      allPlayers.forEach((player) => {
-        const millisecondsPlayed = playerMinutes[player.id] || 0;
-        playerMinutesPayload[player.id.toString()] = millisecondsPlayed;
-        console.log(`  ${player.nombre} ${player.apellido} (ID: ${player.id}): ${Math.round(millisecondsPlayed/1000)} seconds`);
-      });
-
-      console.log("Payload to send:", playerMinutesPayload);
-
-      // Update all player minutes in a single bulk request
-      await gameAPI.updatePlayerMinutes(game.id, playerMinutesPayload);
-      
-      console.log("✅ Player minutes saved successfully to backend");
-
-      // NOTE: Plus-minus is now automatically calculated by the backend when recording shots
-      // No need to update plus-minus manually from frontend
-      /*
-      // Convert playerPlusMinus to the format expected by the backend
-      const playerPlusMinusPayload: Record<string, number> = {};
-
-      // Use Object.entries to get both key and value reliably
-      // Since playerPlusMinus is Record<number, number>, we need to handle the conversion properly
-      for (const [playerIdKey, plusMinusValue] of Object.entries(
-        playerPlusMinus
-      )) {
-        if (typeof plusMinusValue === "number") {
-          playerPlusMinusPayload[playerIdKey] = plusMinusValue;
-        }
-      }
-
-      console.log("🔄 Converting plus-minus data for API:");
-      console.log("Original playerPlusMinus:", playerPlusMinus);
-      console.log(
-        "Number of players with plus-minus:",
-        Object.keys(playerPlusMinus).length
-      );
-      console.log("PlayerPlusMinus entries:", Object.entries(playerPlusMinus));
-      console.log("Converted payload:", playerPlusMinusPayload);
-      console.log("Payload entries:", Object.entries(playerPlusMinusPayload));
-
-      // Send plus-minus to backend
-      if (Object.keys(playerPlusMinusPayload).length > 0) {
-        console.log("📤 Sending plus-minus request to API...");
-        console.log("URL:", `PUT /api/games/${game.id}/player-plusminus`);
-        console.log("Payload:", playerPlusMinusPayload);
-
-        const response = await gameAPI.updatePlayerPlusMinus(
-          game.id,
-          playerPlusMinusPayload
-        );
-
-        console.log("✅ API Response received:");
-        console.log("Status:", response.status);
-        console.log("Response data:", response.data);
-        console.log(
-          "Bulk player plus-minus update completed successfully:",
-          playerPlusMinusPayload
-        );
-      } else {
-        console.log("⚠️ No plus-minus data to send to API");
-      }
-      */
-
-      message.success({
-        content:
-          "Minutos guardados exitosamente (Plus-minus calculado automáticamente por el backend)",
-        duration: 3,
-      });
-    } catch (error: any) {
-      console.error("Error saving player minutes:", error);
-      console.error("Error response:", error?.response?.data);
-      console.error("Error status:", error?.response?.status);
-      console.error("Error message:", error?.message);
-
-      const errorMessage =
-        error?.response?.data?.error || error?.message || "Unknown error";
-      message.error(`Failed to save player minutes: ${errorMessage}`);
-    }
+    // NOTE: Plus-minus is now automatically calculated by the backend when recording shots
+    // No need to update plus-minus manually from frontend
   };
 
   // Score management (following documentation)
@@ -1335,16 +1202,53 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
     // Cleanup function to clear any running timers when component unmounts or ID changes
     return () => {
-      console.log("Component cleanup: clearing timer interval and socket listeners");
+      console.log("Component cleanup: clearing timer interval, auto-save, and socket listeners");
       if (timerInterval) {
         clearInterval(timerInterval);
         setTimerInterval(null);
         setIsClockRunning(false);
       }
+      // Clear auto-save interval
+      if (autoSaveIntervalRef.current) {
+        clearInterval(autoSaveIntervalRef.current);
+        autoSaveIntervalRef.current = null;
+        console.log("⏹️ Auto-save cleaned up on component unmount");
+      }
       // Clean up socket listeners
       socketService.removeAllListeners();
     };
   }, [id, user]); // Added user dependency
+
+  // Warn user before reloading/closing the page if game is in progress
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      console.log('🔔 BEFOREUNLOAD EVENT TRIGGERED!');
+      console.log('Current game:', game);
+      console.log('Game estado:', game?.estado);
+      console.log('Clock running:', isClockRunning);
+      
+      // Show warning if game exists and is not scheduled or finished
+      if (game && game.estado !== 'scheduled' && game.estado !== 'finished') {
+        console.log('⚠️ BLOCKING PAGE RELOAD - Game in progress!');
+        
+        // This is the correct way to trigger the confirmation dialog
+        e.preventDefault(); // Required for Chrome
+        e.returnValue = ''; // Required for Chrome/Edge
+        return ''; // Required for Firefox/Safari
+      } else {
+        console.log('✅ Allowing page reload - no active game');
+      }
+    };
+
+    // Add listener on mount
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    console.log('✅ BEFOREUNLOAD listener added. Game estado:', game?.estado, 'Clock:', isClockRunning);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      console.log('❌ BEFOREUNLOAD listener removed');
+    };
+  }, [game, isClockRunning]); // Re-add listener when game state changes
 
   // Debug: Watch for changes to playerPlusMinus
   useEffect(() => {
@@ -1361,57 +1265,101 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
   const loadGameData = useCallback(async () => {
     console.log(
-      " Current playerPlusMinus before loadGameData:",
+      "📥 loadGameData called - Current playerPlusMinus:",
       playerPlusMinus
     );
     try {
       // Load game data
+      console.log("🎮 Loading game with ID:", id);
       const gameResponse = await gameAPI.getGame(id!);
       const game = gameResponse.data;
+      console.log("✅ Game loaded:", game);
       setGame(game);
 
       // Load both teams and their players
       try {
+        console.log("👥 Loading teams - Home ID:", game.teamHomeId, "Away ID:", game.teamAwayId);
         const [homeTeamResponse, awayTeamResponse] = await Promise.all([
           teamAPI.getTeam(game.teamHomeId),
           teamAPI.getTeam(game.teamAwayId),
         ]);
+        
+        console.log("✅ Home team loaded:", homeTeamResponse.data.nombre, "Players:", homeTeamResponse.data.players?.length || 0);
+        console.log("✅ Away team loaded:", awayTeamResponse.data.nombre, "Players:", awayTeamResponse.data.players?.length || 0);
 
         // Handle active players differently based on game state
         let homeActiveIds: number[] = [];
         let awayActiveIds: number[] = [];
 
         if (game.estado !== "scheduled") {
-          // Only fetch active players for games that have started
+          console.log("🔍 Game is in progress, loading active players...");
+          
+          // ALWAYS fetch from backend first (source of truth)
           try {
+            console.log("🌐 Fetching active players from backend...");
             const activePlayers = await gameAPI.getActivePlayers(id!);
-            console.log("Active players response:", activePlayers.data);
+            console.log("🌐 Backend response (full):", activePlayers);
+            console.log("🌐 Backend response data:", activePlayers.data);
 
             if (activePlayers.data) {
               const homePlayers = activePlayers.data.homeTeam?.players || [];
               const awayPlayers = activePlayers.data.awayTeam?.players || [];
+              
+              console.log("🌐 Home players from BD:", homePlayers.length, homePlayers);
+              console.log("🌐 Away players from BD:", awayPlayers.length, awayPlayers);
 
-              homeActiveIds = homePlayers.map((p: Player) => p.id);
-              awayActiveIds = awayPlayers.map((p: Player) => p.id);
+              const homeFromBD = homePlayers.map((p: Player) => p.id);
+              const awayFromBD = awayPlayers.map((p: Player) => p.id);
 
-              console.log("Home active players:", homeActiveIds);
-              console.log("Away active players:", awayActiveIds);
-
-              // If no active players are set but game is in progress,
-              // this likely means the game was started without proper lineup setup
-              if (homeActiveIds.length === 0 && awayActiveIds.length === 0) {
-                console.warn(
-                  "Game is in progress but no active players found. This game may need active players to be set."
+              // Use backend data as primary source
+              if (homeFromBD.length > 0 || awayFromBD.length > 0) {
+                homeActiveIds = homeFromBD;
+                awayActiveIds = awayFromBD;
+                console.log("✅ Using active players from BACKEND:", { home: homeActiveIds, away: awayActiveIds });
+              } else {
+                console.error(
+                  "❌❌❌ CRITICAL: Backend returned NO active players!"
                 );
-                // You could either:
-                // 1. Show a warning to set active players
-                // 2. Default to showing first 5 players of each team
-                // For now, we'll leave arrays empty but log the issue
+                console.error("Game ID:", id);
+                console.error("Game estado:", game.estado);
+                console.error("This means the backend didn't save the lineup when the game started.");
+                
+                // Fallback: try localStorage
+                const savedActivePlayers = localStorage.getItem(`game-${id}-activePlayers`);
+                if (savedActivePlayers) {
+                  try {
+                    const parsed = JSON.parse(savedActivePlayers);
+                    homeActiveIds = parsed.home || [];
+                    awayActiveIds = parsed.away || [];
+                    console.warn("⚠️ Falling back to localStorage:", { home: homeActiveIds, away: awayActiveIds });
+                  } catch (e) {
+                    console.error("❌ Error parsing localStorage:", e);
+                  }
+                } else {
+                  console.error("❌ No data in localStorage either!");
+                }
               }
+            } else {
+              console.error("❌ Backend response has no data property!");
             }
           } catch (err) {
-            console.error("Error processing active players:", err);
+            console.error("❌ Error fetching active players from backend:", err);
+            
+            // Fallback to localStorage only on error
+            const savedActivePlayers = localStorage.getItem(`game-${id}-activePlayers`);
+            if (savedActivePlayers) {
+              try {
+                const parsed = JSON.parse(savedActivePlayers);
+                homeActiveIds = parsed.home || [];
+                awayActiveIds = parsed.away || [];
+                console.warn("⚠️ Backend failed, using localStorage:", { home: homeActiveIds, away: awayActiveIds });
+              } catch (e) {
+                console.error("❌ Error parsing localStorage:", e);
+              }
+            }
           }
+        } else {
+          console.log("📅 Game is scheduled (not started yet), no active players needed");
         }
 
         // Set selected players
@@ -1451,26 +1399,55 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           }),
         };
 
-        console.log("Final home team with players:", newHomeTeam);
-        console.log("Final away team with players:", newAwayTeam);
+        console.log("🏠 Home team configured:", {
+          name: newHomeTeam.nombre,
+          totalPlayers: newHomeTeam.players.length,
+          playersOnCourt: newHomeTeam.players.filter((p: Player) => p.isOnCourt).length,
+          onCourtPlayers: newHomeTeam.players.filter((p: Player) => p.isOnCourt).map((p: Player) => `#${p.numero} ${p.nombre}`)
+        });
+        console.log("✈️ Away team configured:", {
+          name: newAwayTeam.nombre,
+          totalPlayers: newAwayTeam.players.length,
+          playersOnCourt: newAwayTeam.players.filter((p: Player) => p.isOnCourt).length,
+          onCourtPlayers: newAwayTeam.players.filter((p: Player) => p.isOnCourt).map((p: Player) => `#${p.numero} ${p.nombre}`)
+        });
 
         setHomeTeam(newHomeTeam);
         setAwayTeam(newAwayTeam);
 
-        // Initialize player minutes for all players ONLY if playerMinutes is empty
-        // This prevents overwriting the timer's tracking when game data reloads
+        // Initialize player minutes - use the most recent data from: current state, BD stats, localStorage, or 0
         const allPlayers = [...newHomeTeam.players, ...newAwayTeam.players];
         setPlayerMinutes((prev) => {
-          // If we already have minute data, don't reinitialize
-          if (Object.keys(prev).length > 0) {
-            console.log("⏱️ Preserving existing player minutes during game reload");
-            return prev;
-          }
-          // First load - initialize to 0
+          // Always use the maximum value from all sources (state, BD, localStorage)
           const initialPlayerMinutes: Record<number, number> = {};
+          const localStorageData = localStorage.getItem(`game-${id}-playerMinutes`);
+          let localMinutes: Record<number, number> = {};
+          
+          if (localStorageData) {
+            try {
+              localMinutes = JSON.parse(localStorageData);
+            } catch (e) {
+              console.error('Error parsing localStorage minutes:', e);
+            }
+          }
+          
           allPlayers.forEach((player) => {
-            initialPlayerMinutes[player.id] = 0;
+            // Priority: MAX(current state, localStorage, BD stats)
+            const currentMinutes = prev[player.id] || 0;
+            const statsFromBD = game.stats?.find((s: any) => s.playerId === player.id);
+            const minutesFromBD = statsFromBD?.minutos || 0; // BD stores in milliseconds
+            const minutesFromLocal = localMinutes[player.id] || 0;
+            
+            // Use the maximum value from all three sources
+            const minutes = Math.max(currentMinutes, minutesFromBD, minutesFromLocal);
+            initialPlayerMinutes[player.id] = minutes;
+            
+            if (minutes > 0) {
+              console.log(`📥 Player ${player.nombre} minutes: ${Math.round(minutes/1000)}s (State: ${Math.round(currentMinutes/1000)}s, BD: ${Math.round(minutesFromBD/1000)}s, Local: ${Math.round(minutesFromLocal/1000)}s)`);
+            }
           });
+          
+          console.log("💾 Player minutes initialized/updated from all sources");
           return initialPlayerMinutes;
         });
 
@@ -1585,8 +1562,13 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
       setIsLineupModalVisible(false);
 
-      // Reset player minutes for new game
-      resetPlayerMinutes();
+      // ✅ Only reset minutes if this is a new game being started
+      if (game?.estado === 'scheduled') {
+        resetPlayerMinutes();
+        console.log('🆕 New game starting - player minutes reset');
+      } else {
+        console.log('▶️ Resuming existing game - preserving player minutes');
+      }
 
       // DON'T start the game timer automatically - let the user start it manually
       // startTimer();
@@ -1676,7 +1658,28 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   };
 
   if (!game || !homeTeam || !awayTeam) {
-    return <div>Cargando...</div>;
+    return (
+      <div style={{ 
+        padding: '40px', 
+        textAlign: 'center', 
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <Title level={3}>Cargando datos del juego...</Title>
+        <Text type="secondary">Por favor espera mientras se cargan los equipos</Text>
+        {!game && <Text type="secondary">⏳ Cargando información del juego...</Text>}
+        {game && !homeTeam && <Text type="secondary">⏳ Cargando equipo local...</Text>}
+        {game && !awayTeam && <Text type="secondary">⏳ Cargando equipo visitante...</Text>}
+        {user && (
+          <div style={{ marginTop: 20 }}>
+            <Text type="secondary">Usuario: {user.nombre} ({user.rol})</Text>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -1694,7 +1697,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             <Title level={3} style={{ margin: 0 }}>
               {game.teamHome.nombre} vs {game.teamAway.nombre}
             </Title>
-            <Text type="secondary">{game.event.nombre}</Text>
+            <Text type="secondary">{game.event?.nombre || 'Partido'}</Text>
           </Col>
           <Col>
             <Space>
@@ -1723,58 +1726,13 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       >
         <Row align="middle" justify="space-between" gutter={8}>
           <Col span={8}>
-            <Title level={4} style={{ margin: 0 }}>
-              {game.teamHome.nombre}
-            </Title>
-            <Statistic value={game.homeScore} style={{ marginTop: "4px" }} />
-            {game.estado === "in_progress" && (
-              <Space style={{ marginTop: 8 }}>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    updateScore(
-                      (homeTeam?.score || 0) + 1,
-                      awayTeam?.score || 0
-                    )
-                  }
-                >
-                  +1
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    updateScore(
-                      (homeTeam?.score || 0) + 2,
-                      awayTeam?.score || 0
-                    )
-                  }
-                >
-                  +2
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    updateScore(
-                      (homeTeam?.score || 0) + 3,
-                      awayTeam?.score || 0
-                    )
-                  }
-                >
-                  +3
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    updateScore(
-                      Math.max(0, (homeTeam?.score || 0) - 1),
-                      awayTeam?.score || 0
-                    )
-                  }
-                >
-                  -1
-                </Button>
-              </Space>
-            )}
+            <ScoreBoard
+              team={game.teamHome}
+              score={homeTeam?.score || 0}
+              isHome={true}
+              gameStatus={game.estado}
+              onUpdateScore={(newScore) => updateScore(newScore, awayTeam?.score || 0)}
+            />
           </Col>
           <Col span={8} style={{ textAlign: "center" }}>
             <Space direction="vertical" size="small" style={{ width: "100%" }}>
@@ -1800,7 +1758,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                       : `Q${game.currentQuarter}`}
                   </Title>
                   <Tag color="blue" style={{ marginTop: "4px" }}>
-                    {game.event.nombre}
+                    {game.event?.nombre || 'Partido'}
                   </Tag>
                 </div>
               )}
@@ -1836,176 +1794,93 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   </div>
                 </Space>
               )}
-              {game.estado === "in_progress" && user?.rol === "ADMIN" && (
-                <div style={{ textAlign: "center" }}>
-                  <Title
-                    level={1}
-                    style={{ margin: "0 0 16px 0", fontSize: "48px" }}
-                  >
-                    {formatTime(gameTime)}
-                  </Title>
-                  <Button
-                    icon={
-                      isClockRunning ? (
-                        <PauseCircleOutlined />
-                      ) : (
-                        <PlayCircleOutlined />
-                      )
-                    }
-                    onClick={() =>
-                      isClockRunning ? stopTimer() : startTimer()
-                    }
-                    size="large"
-                    disabled={!hasPermission("canControlTime")}
-                    title={
-                      !hasPermission("canControlTime")
-                        ? "No tienes permisos para controlar el tiempo"
-                        : undefined
-                    }
-                  >
-                    {isClockRunning ? "Pausar" : "Reanudar"}
-                  </Button>
-
-                  {/* Debug section for permissions - Only for ADMIN users */}
-                  {user?.rol === "ADMIN" && (
-                    <div
-                      style={{
-                        marginTop: 16,
-                        padding: 8,
-                        background: "#f0f0f0",
-                        borderRadius: 4,
-                        fontSize: 12,
-                      }}
-                    >
-                      <div>
-                        <strong>Debug Info:</strong>
-                      </div>
-                      <div>User Role: {user?.rol}</div>
-                      <div>Timer Running: {isClockRunning ? "YES" : "NO"}</div>
-                      <div>Can Add Stats: YES (allowed anytime)</div>
-                      <div>Can Substitute: YES (allowed anytime)</div>
-                      <div>
-                        Has canControlTime:{" "}
-                        {hasPermission("canControlTime") ? "YES" : "NO"}
-                      </div>
-                      <div>
-                        Current Permissions:{" "}
-                        {currentGamePermissions
-                          ? "LOADED"
-                          : "NOT LOADED (using defaults)"}
-                      </div>
-                      {currentGamePermissions && (
-                        <div>
-                          canControlTime:{" "}
-                          {currentGamePermissions.canControlTime
-                            ? "TRUE"
-                            : "FALSE"}
-                        </div>
-                      )}
-                      {!currentGamePermissions && user?.rol && (
-                        <div>
-                          Default canControlTime for {user.rol}:{" "}
-                          {(() => {
-                            const defaultPerms =
-                              permissionService.getDefaultPermissions(user.rol);
-                            return defaultPerms.canControlTime
-                              ? "TRUE"
-                              : "FALSE";
-                          })()}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Show warning if no active players are set */}
-                  {selectedPlayers.home.length === 0 &&
-                    selectedPlayers.away.length === 0 && (
-                      <div
-                        style={{
-                          marginTop: 16,
-                          padding: 12,
-                          backgroundColor: "#fff2e8",
-                          borderRadius: 6,
-                          border: "1px solid #fa8c16",
-                        }}
-                      >
-                        <Text type="warning" style={{ fontSize: 12 }}>
-                          ⚠️ No hay jugadores activos.
-                        </Text>
-                        <br />
-                        <Button
-                          size="small"
-                          type="primary"
-                          style={{ marginTop: 8 }}
-                          onClick={() => setIsLineupModalVisible(true)}
-                          disabled={!hasPermission("canSetStarters")}
-                          title={
-                            !hasPermission("canSetStarters")
-                              ? "No tienes permisos para configurar quintetos"
-                              : undefined
-                          }
-                        >
-                          Configurar Quintetos
-                        </Button>
-                      </div>
-                    )}
+              {game.estado === "in_progress" && hasPermission("canControlTime") && (
+                <GameClock
+                  gameTime={gameTime}
+                  isClockRunning={isClockRunning}
+                  currentQuarter={game.currentQuarter}
+                  totalQuarters={game.totalQuarters}
+                  isOvertime={game.isOvertime || false}
+                  userRole={user?.rol}
+                  hasPermission={hasPermission("canControlTime")}
+                  onStartTimer={startTimer}
+                  onStopTimer={stopTimer}
+                  showDebug={user?.rol === "ADMIN"}
+                  currentGamePermissions={currentGamePermissions}
+                />
+              )}
+              
+              {/* Role-specific instructions */}
+              {game.estado === "in_progress" && !hasPermission("canControlTime") && user?.rol !== "USER" && (
+                <div
+                  style={{
+                    padding: "12px 16px",
+                    backgroundColor: "#e6f7ff",
+                    borderRadius: 6,
+                    border: "1px solid #1890ff",
+                    marginTop: 8,
+                  }}
+                >
+                  <Text strong style={{ color: "#1890ff" }}>
+                    {user?.rol === "SCORER" && "📝 Modo Anotador: Haz clic en los jugadores en cancha para registrar puntos y tiros"}
+                    {user?.rol === "REBOUNDER_ASSISTS" && "🏀 Modo Reboteador: Haz clic en los jugadores en cancha para registrar rebotes, asistencias y pérdidas"}
+                    {user?.rol === "STEALS_BLOCKS" && "🛡️ Modo Defensivo: Haz clic en los jugadores en cancha para registrar robos y bloqueos"}
+                    {user?.rol === "ALL_AROUND" && "⭐ Modo Completo: Haz clic en los jugadores en cancha para registrar todas las estadísticas"}
+                  </Text>
                 </div>
               )}
+
+              {/* Show warning if no active players are set */}
+              {game.estado === "in_progress" &&
+                selectedPlayers.home.length === 0 &&
+                selectedPlayers.away.length === 0 && (
+                  <div
+                    style={{
+                      marginTop: 16,
+                      padding: 16,
+                      backgroundColor: hasPermission("canSetStarters") ? "#fff2e8" : "#fff1f0",
+                      borderRadius: 6,
+                      border: hasPermission("canSetStarters") ? "1px solid #fa8c16" : "1px solid #ff4d4f",
+                    }}
+                  >
+                    <Text strong style={{ fontSize: 14, color: hasPermission("canSetStarters") ? "#fa8c16" : "#ff4d4f" }}>
+                      ⚠️ No hay jugadores activos en cancha
+                    </Text>
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {hasPermission("canSetStarters") 
+                        ? "El juego ha iniciado pero los quintetos no están configurados. Haz clic abajo para seleccionar los jugadores iniciales."
+                        : "Los quintetos no han sido configurados. Un usuario con rol ADMIN o TIME_CONTROLLER debe configurar quiénes están en cancha."
+                      }
+                    </Text>
+                    <br />
+                    {hasPermission("canSetStarters") && (
+                      <Button
+                        size="small"
+                        type="primary"
+                        style={{ marginTop: 8 }}
+                        onClick={() => setIsLineupModalVisible(true)}
+                      >
+                        Configurar Quintetos
+                      </Button>
+                    )}
+                    {!hasPermission("canSetStarters") && (
+                      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
+                        💡 Espera a que un administrador configure los quintetos para poder registrar estadísticas.
+                      </Text>
+                    )}
+                  </div>
+                )}
             </Space>
           </Col>
           <Col span={8} style={{ textAlign: "right" }}>
-            <Title level={4} style={{ margin: 0 }}>
-              {game.teamAway.nombre}
-            </Title>
-            <Statistic value={game.awayScore} style={{ marginTop: "4px" }} />
-            {game.estado === "in_progress" && (
-              <Space style={{ marginTop: 8 }}>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    updateScore(
-                      homeTeam?.score || 0,
-                      (awayTeam?.score || 0) + 1
-                    )
-                  }
-                >
-                  +1
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    updateScore(
-                      homeTeam?.score || 0,
-                      (awayTeam?.score || 0) + 2
-                    )
-                  }
-                >
-                  +2
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    updateScore(
-                      homeTeam?.score || 0,
-                      (awayTeam?.score || 0) + 3
-                    )
-                  }
-                >
-                  +3
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    updateScore(
-                      homeTeam?.score || 0,
-                      Math.max(0, (awayTeam?.score || 0) - 1)
-                    )
-                  }
-                >
-                  -1
-                </Button>
-              </Space>
-            )}
+            <ScoreBoard
+              team={game.teamAway}
+              score={awayTeam?.score || 0}
+              isHome={false}
+              gameStatus={game.estado}
+              onUpdateScore={(newScore) => updateScore(homeTeam?.score || 0, newScore)}
+            />
           </Col>
         </Row>
       </div>
@@ -2062,204 +1937,36 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             </div>
           )}
           {/* Court */}
-          <div style={{
-            ...courtStyle,
-            height: isFullscreen ? "calc(100vh - 300px)" : isMobile ? "50vh" : "60vh",
-            margin: isFullscreen ? "8px 0" : "32px 0",
-          }}>
-            {/* Home team on left, away team on right */}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                width: "30%",
-              }}
-            >
-              {getOnCourtPlayers(homeTeam).map((p) => (
-                <div
-                  key={p.id}
-                  style={{
-                    ...playerCircle,
-                    width: isMobile ? 60 : 80,
-                    height: isMobile ? 60 : 80,
-                    background: "#1890ff",
-                    color: "white",
-                    border: "3px solid #fff",
-                    fontSize: isMobile ? 12 : 16,
-                  }}
-                  onClick={(e) => {
-                    if (e.shiftKey || substitutionState.isSelecting) {
-                      startSubstitution(p, "home");
-                    } else {
-                      openStatsModal(p);
-                    }
-                  }}
-                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats, Shift+Click to substitute`}
-                >
-                  <b style={{ fontSize: 18 }}>{p.numero}</b>
-                  <span style={{ fontSize: 10, fontWeight: "bold" }}>
-                    {p.nombre.split(" ")[0]}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div
-              style={{ width: "40%", textAlign: "center", alignSelf: "center" }}
-            >
-              <div>
-                <Title level={2} style={{ color: "#b8860b", margin: 0 }}>
-                  CANCHA
-                </Title>
-                {substitutionState.isSelecting && (
-                  <div style={{ marginTop: 8 }}>
-                    <Tag color="processing">
-                      Selecting substitute for{" "}
-                      {substitutionState.playerOut?.nombre}
-                    </Tag>
-                    <Button
-                      size="small"
-                      danger
-                      onClick={cancelSubstitution}
-                      style={{ marginLeft: 8 }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                width: "30%",
-              }}
-            >
-              {getOnCourtPlayers(awayTeam).map((p) => (
-                <div
-                  key={p.id}
-                  style={{
-                    ...playerCircle,
-                    width: isMobile ? 60 : 80,
-                    height: isMobile ? 60 : 80,
-                    background: "#f5222d",
-                    color: "white",
-                    border: "3px solid #fff",
-                    fontSize: isMobile ? 12 : 16,
-                  }}
-                  onClick={(e) => {
-                    if (e.shiftKey || substitutionState.isSelecting) {
-                      startSubstitution(p, "away");
-                    } else {
-                      openStatsModal(p);
-                    }
-                  }}
-                  title={`${p.nombre} ${p.apellido} - ${p.posicion} | Click to record stats, Shift+Click to substitute`}
-                >
-                  <b style={{ fontSize: 18 }}>{p.numero}</b>
-                  <span style={{ fontSize: 10, fontWeight: "bold" }}>
-                    {p.nombre.split(" ")[0]}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <Court
+            homeTeam={homeTeam}
+            awayTeam={awayTeam}
+            isMobile={isMobile}
+            isFullscreen={isFullscreen}
+            substitutionState={substitutionState}
+            onPlayerClick={(player, team, e) => {
+              if (e.shiftKey || substitutionState.isSelecting) {
+                startSubstitution(player, team);
+              } else {
+                openStatsModal(player);
+              }
+            }}
+            onCancelSubstitution={cancelSubstitution}
+          />
           {/* Benches */}
           {(!isFullscreen || showBenchInFullscreen || !isMobile) && (
-            <Row gutter={[16, 16]} style={{ marginTop: isFullscreen ? 12 : 24 }}>
-              <Col xs={24} md={12}>
-                <Title level={5} style={{ fontSize: isMobile ? 14 : 16 }}>Banca {homeTeam.nombre}</Title>
-                <div style={benchStyle}>
-                  {getBenchPlayers(homeTeam).map((p) => (
-                    <div
-                      key={p.id}
-                      style={{
-                        ...playerCircle,
-                        background: "#e6f7ff",
-                        border:
-                          substitutionState.isSelecting &&
-                            substitutionState.selectedTeam === "home"
-                            ? "3px solid #52c41a"
-                            : "1px dashed #1890ff",
-                        cursor:
-                          substitutionState.isSelecting &&
-                            substitutionState.selectedTeam === "home"
-                            ? "pointer"
-                            : "default",
-                      }}
-                      onClick={() => {
-                        if (
-                          substitutionState.isSelecting &&
-                          substitutionState.selectedTeam === "home"
-                        ) {
-                          completeSubstitution(p);
-                        } else if (!substitutionState.isSelecting) {
-                          openStatsModal(p);
-                        }
-                      }}
-                      title={
-                        substitutionState.isSelecting &&
-                          substitutionState.selectedTeam === "home"
-                          ? `Click to substitute in ${p.nombre}`
-                          : `${p.nombre} ${p.apellido} - ${p.posicion} | Bench player - No stats when not on court`
-                      }
-                    >
-                      <b>{p.numero}</b>
-                      <span style={{ fontSize: 12 }}>
-                        {p.nombre.split(" ")[0]}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </Col>
-              <Col xs={24} md={12}>
-                <Title level={5} style={{ fontSize: isMobile ? 14 : 16 }}>Banca {awayTeam.nombre}</Title>
-                <div style={benchStyle}>
-                  {getBenchPlayers(awayTeam).map((p) => (
-                    <div
-                      key={p.id}
-                      style={{
-                        ...playerCircle,
-                        background: "#e6f7ff",
-                        border:
-                          substitutionState.isSelecting &&
-                            substitutionState.selectedTeam === "away"
-                            ? "3px solid #52c41a"
-                            : "1px dashed #1890ff",
-                        cursor:
-                          substitutionState.isSelecting &&
-                            substitutionState.selectedTeam === "away"
-                            ? "pointer"
-                            : "default",
-                      }}
-                      onClick={() => {
-                        if (
-                          substitutionState.isSelecting &&
-                          substitutionState.selectedTeam === "away"
-                        ) {
-                          completeSubstitution(p);
-                        } else if (!substitutionState.isSelecting) {
-                          openStatsModal(p);
-                        }
-                      }}
-                      title={
-                        substitutionState.isSelecting &&
-                          substitutionState.selectedTeam === "away"
-                          ? `Click to substitute in ${p.nombre}`
-                          : `${p.nombre} ${p.apellido} - ${p.posicion} | Bench player - No stats when not on court`
-                      }
-                    >
-                      <b>{p.numero}</b>
-                      <span style={{ fontSize: 12 }}>
-                        {p.nombre.split(" ")[0]}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </Col>
-            </Row>
+            <BenchArea
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              isMobile={isMobile}
+              substitutionState={substitutionState}
+              onBenchPlayerClick={(player, team) => {
+                if (substitutionState.isSelecting && substitutionState.selectedTeam === team) {
+                  completeSubstitution(player);
+                } else if (!substitutionState.isSelecting) {
+                  openStatsModal(player);
+                }
+              }}
+            />
           )}
 
           {/* Toggle bench button for fullscreen mobile */}
@@ -2276,565 +1983,33 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         </div>
       )}
 
-      {/* Modal for confirming game start */}
-      <Modal
-        title="Iniciar Juego"
-        open={isLineupModalVisible}
-        onCancel={() => {
-          setIsLineupModalVisible(false);
-        }}
-        footer={[
-          <Button
-            key="cancel"
-            onClick={() => {
-              setIsLineupModalVisible(false);
-            }}
-          >
-            Cancelar
-          </Button>,
-          <Button
-            key="start"
-            type="primary"
-            disabled={
-              selectedPlayers.home.length !== 5 ||
-              selectedPlayers.away.length !== 5
-            }
-            onClick={startGame}
-          >
-            Iniciar Juego
-          </Button>,
-        ]}
-        width={800}
-      >
-        <div>
-          {!homeTeam || !awayTeam ? (
-            <div style={{ textAlign: "center", padding: "40px 0" }}>
-              <Title level={4}>Cargando datos de los equipos...</Title>
-            </div>
-          ) : selectedPlayers.home.length === 5 &&
-            selectedPlayers.away.length === 5 ? (
-            // Show confirmation view when lineups are complete
-            <>
-              <Title level={4}>Quintetos Iniciales</Title>
-              <Row gutter={24}>
-                <Col span={12}>
-                  <Title level={5}>{homeTeam.nombre}</Title>
-                  <List
-                    dataSource={homeTeam.players.filter((p) =>
-                      selectedPlayers.home.includes(p.id)
-                    )}
-                    renderItem={(player) => (
-                      <List.Item>
-                        <Space>
-                          <span style={{ fontWeight: "bold" }}>
-                            {player.numero}
-                          </span>
-                          {player.nombre} {player.apellido}
-                          <Tag color="blue">{player.posicion}</Tag>
-                        </Space>
-                      </List.Item>
-                    )}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Title level={5}>{awayTeam.nombre}</Title>
-                  <List
-                    dataSource={awayTeam.players.filter((p) =>
-                      selectedPlayers.away.includes(p.id)
-                    )}
-                    renderItem={(player) => (
-                      <List.Item>
-                        <Space>
-                          <span style={{ fontWeight: "bold" }}>
-                            {player.numero}
-                          </span>
-                          {player.nombre} {player.apellido}
-                          <Tag color="red">{player.posicion}</Tag>
-                        </Space>
-                      </List.Item>
-                    )}
-                  />
-                </Col>
-              </Row>
-            </>
-          ) : (
-            // Show player selection view when lineups are incomplete
-            <>
-              <Title level={4}>Seleccionar Quintetos Iniciales</Title>
-              <Text
-                type="secondary"
-                style={{ display: "block", marginBottom: 16 }}
-              >
-                Selecciona 5 jugadores para cada equipo. Haz clic en los
-                jugadores para agregarlos o quitarlos del quinteto inicial.
-              </Text>
-
-              <div
-                style={{
-                  marginBottom: 16,
-                  padding: 8,
-                  backgroundColor: "#f0f0f0",
-                  borderRadius: 4,
-                }}
-              >
-                <Text type="secondary">
-                  Debug - Home players: {homeTeam.players?.length || 0}, Away
-                  players: {awayTeam.players?.length || 0}
-                </Text>
-              </div>
-
-              <Row gutter={24}>
-                <Col span={12}>
-                  <div style={{ marginBottom: 16 }}>
-                    <Title level={5}>{homeTeam.nombre}</Title>
-                    <Text
-                      type={
-                        selectedPlayers.home.length === 5
-                          ? "success"
-                          : "warning"
-                      }
-                    >
-                      Seleccionados: {selectedPlayers.home.length}/5
-                    </Text>
-                  </div>
-                  <List
-                    dataSource={homeTeam.players || []}
-                    renderItem={(player) => (
-                      <List.Item
-                        style={{
-                          cursor: "pointer",
-                          backgroundColor: selectedPlayers.home.includes(
-                            player.id
-                          )
-                            ? "#e6f7ff"
-                            : "transparent",
-                          border: selectedPlayers.home.includes(player.id)
-                            ? "1px solid #1890ff"
-                            : "1px solid transparent",
-                          borderRadius: 4,
-                          padding: "8px 12px",
-                          margin: "4px 0",
-                        }}
-                        onClick={() => {
-                          console.log("Clicked player:", player);
-                          const isSelected = selectedPlayers.home.includes(
-                            player.id
-                          );
-                          if (isSelected) {
-                            // Remove player
-                            setSelectedPlayers((prev) => ({
-                              ...prev,
-                              home: prev.home.filter((id) => id !== player.id),
-                            }));
-                          } else if (selectedPlayers.home.length < 5) {
-                            // Add player (only if less than 5 selected)
-                            setSelectedPlayers((prev) => ({
-                              ...prev,
-                              home: [...prev.home, player.id],
-                            }));
-                          }
-                        }}
-                      >
-                        <Space>
-                          <span style={{ fontWeight: "bold" }}>
-                            {player.numero}
-                          </span>
-                          {player.nombre} {player.apellido}
-                          <Tag color="blue">{player.posicion}</Tag>
-                          {selectedPlayers.home.includes(player.id) && (
-                            <Tag color="success">Seleccionado</Tag>
-                          )}
-                        </Space>
-                      </List.Item>
-                    )}
-                  />
-                </Col>
-                <Col span={12}>
-                  <div style={{ marginBottom: 16 }}>
-                    <Title level={5}>{awayTeam.nombre}</Title>
-                    <Text
-                      type={
-                        selectedPlayers.away.length === 5
-                          ? "success"
-                          : "warning"
-                      }
-                    >
-                      Seleccionados: {selectedPlayers.away.length}/5
-                    </Text>
-                  </div>
-                  <List
-                    dataSource={awayTeam.players || []}
-                    renderItem={(player) => (
-                      <List.Item
-                        style={{
-                          cursor: "pointer",
-                          backgroundColor: selectedPlayers.away.includes(
-                            player.id
-                          )
-                            ? "#fff2e8"
-                            : "transparent",
-                          border: selectedPlayers.away.includes(player.id)
-                            ? "1px solid #fa8c16"
-                            : "1px solid transparent",
-                          borderRadius: 4,
-                          padding: "8px 12px",
-                          margin: "4px 0",
-                        }}
-                        onClick={() => {
-                          console.log("Clicked player:", player);
-                          const isSelected = selectedPlayers.away.includes(
-                            player.id
-                          );
-                          if (isSelected) {
-                            // Remove player
-                            setSelectedPlayers((prev) => ({
-                              ...prev,
-                              away: prev.away.filter((id) => id !== player.id),
-                            }));
-                          } else if (selectedPlayers.away.length < 5) {
-                            // Add player (only if less than 5 selected)
-                            setSelectedPlayers((prev) => ({
-                              ...prev,
-                              away: [...prev.away, player.id],
-                            }));
-                          }
-                        }}
-                      >
-                        <Space>
-                          <span style={{ fontWeight: "bold" }}>
-                            {player.numero}
-                          </span>
-                          {player.nombre} {player.apellido}
-                          <Tag color="red">{player.posicion}</Tag>
-                          {selectedPlayers.away.includes(player.id) && (
-                            <Tag color="success">Seleccionado</Tag>
-                          )}
-                        </Space>
-                      </List.Item>
-                    )}
-                  />
-                </Col>
-              </Row>
-            </>
-          )}
-        </div>
-      </Modal>
+      {/* Lineup Selection Modal */}
+      <LineupModal
+        visible={isLineupModalVisible}
+        homeTeam={homeTeam}
+        awayTeam={awayTeam}
+        selectedPlayers={selectedPlayers}
+        onTogglePlayer={togglePlayerSelection}
+        onCancel={() => setIsLineupModalVisible(false)}
+        onConfirm={startGame}
+      />
 
       {/* Modal for tracking stats */}
-      <Modal
-        title={
-          statsModal.player
-            ? `Estadísticas - ${statsModal.player.nombre} ${statsModal.player.apellido}`
-            : ""
+      <StatsModal
+        player={statsModal.player}
+        visible={statsModal.visible}
+        activeTab={statsModal.activeTab}
+        onClose={closeStatsModal}
+        onTabChange={(tab) =>
+          setStatsModal((prev) => ({
+            ...prev,
+            activeTab: tab,
+          }))
         }
-        open={statsModal.visible}
-        onCancel={closeStatsModal}
-        footer={null}
-        width={600}
-      >
-        <Tabs
-          activeKey={statsModal.activeTab}
-          onChange={(key: string) =>
-            setStatsModal((prev) => ({
-              ...prev,
-              activeTab: key as "shots" | "other",
-            }))
-          }
-        >
-          {/* Shots Tab - Show for SCORER, ALL_AROUND, and ADMIN */}
-          {(hasPermission("canEditShots") ||
-            hasPermission("canEditPoints") ||
-            hasPermission("canEditFreeThrows")) && (
-              <Tabs.TabPane tab="Tiros" key="shots">
-                <div style={{ textAlign: "center", padding: "20px 0" }}>
-                  {/* 2-Point Field Goals */}
-                  {hasPermission("canEditShots") && (
-                    <div style={{ marginBottom: 24 }}>
-                      <Title level={5}>Tiros de 2 Puntos</Title>
-                      <Space>
-                        <Button
-                          type="primary"
-                          size="large"
-                          style={{
-                            width: "120px",
-                            backgroundColor: "#52c41a",
-                            borderColor: "#52c41a",
-                          }}
-                          onClick={() => recordShot("2pt", true)}
-                        >
-                          Anotado
-                        </Button>
-                        <Button
-                          type="primary"
-                          danger
-                          size="large"
-                          style={{ width: "120px" }}
-                          onClick={() => recordShot("2pt", false)}
-                        >
-                          Fallado
-                        </Button>
-                      </Space>
-                    </div>
-                  )}
-
-                  {/* 3-Point Field Goals */}
-                  {hasPermission("canEditShots") && (
-                    <div style={{ marginBottom: 24 }}>
-                      <Title level={5}>Tiros de 3 Puntos</Title>
-                      <Space>
-                        <Button
-                          type="primary"
-                          size="large"
-                          style={{
-                            width: "120px",
-                            backgroundColor: "#52c41a",
-                            borderColor: "#52c41a",
-                          }}
-                          onClick={() => recordShot("3pt", true)}
-                        >
-                          Anotado
-                        </Button>
-                        <Button
-                          type="primary"
-                          danger
-                          size="large"
-                          style={{ width: "120px" }}
-                          onClick={() => recordShot("3pt", false)}
-                        >
-                          Fallado
-                        </Button>
-                      </Space>
-                    </div>
-                  )}
-
-                  {/* Free Throws */}
-                  {hasPermission("canEditFreeThrows") && (
-                    <div>
-                      <Title level={5}>Tiros Libres</Title>
-                      <Space>
-                        <Button
-                          type="primary"
-                          size="large"
-                          style={{
-                            width: "120px",
-                            backgroundColor: "#52c41a",
-                            borderColor: "#52c41a",
-                          }}
-                          onClick={() => recordShot("ft", true)}
-                        >
-                          Anotado
-                        </Button>
-                        <Button
-                          type="primary"
-                          danger
-                          size="large"
-                          style={{ width: "120px" }}
-                          onClick={() => recordShot("ft", false)}
-                        >
-                          Fallado
-                        </Button>
-                      </Space>
-                    </div>
-                  )}
-                </div>
-              </Tabs.TabPane>
-            )}
-
-          {/* Other Stats Tab - Show sections based on permissions */}
-          {(hasPermission("canEditRebounds") ||
-            hasPermission("canEditAssists") ||
-            hasPermission("canEditSteals") ||
-            hasPermission("canEditBlocks") ||
-            hasPermission("canEditTurnovers") ||
-            hasPermission("canEditPersonalFouls")) && (
-              <Tabs.TabPane tab="Otras Estadísticas" key="other">
-                <div style={{ textAlign: "center", padding: "20px 0" }}>
-                  <Space
-                    direction="vertical"
-                    size="large"
-                    style={{ width: "100%" }}
-                  >
-                    {/* Rebounds and Assists - Show for REBOUNDER_ASSISTS, ALL_AROUND, ADMIN */}
-                    {(hasPermission("canEditRebounds") ||
-                      hasPermission("canEditAssists")) && (
-                        <div>
-                          <Title level={5}>Rebotes y Asistencias</Title>
-                          <Space>
-                            {hasPermission("canEditRebounds") && (
-                              <Button
-                                type="primary"
-                                size="large"
-                                style={{ width: "120px" }}
-                                onClick={() => recordStat("rebound")}
-                              >
-                                Rebote
-                              </Button>
-                            )}
-                            {hasPermission("canEditRebounds") && (
-                              <Button
-                                type="default"
-                                size="large"
-                                style={{ width: "160px" }}
-                                onClick={() => recordStat("offensiveRebound")}
-                              >
-                                Rebote Ofensivo
-                              </Button>
-                            )}
-                            {hasPermission("canEditAssists") && (
-                              <Button
-                                type="primary"
-                                size="large"
-                                style={{ width: "120px" }}
-                                onClick={() => recordStat("assist")}
-                              >
-                                Asistencia
-                              </Button>
-                            )}
-                          </Space>
-                        </div>
-                      )}
-
-                    {/* Defense - Show for STEALS_BLOCKS, ALL_AROUND, ADMIN */}
-                    {(hasPermission("canEditSteals") ||
-                      hasPermission("canEditBlocks")) && (
-                        <div>
-                          <Title level={5}>Defensa</Title>
-                          <Space>
-                            {hasPermission("canEditSteals") && (
-                              <Button
-                                type="primary"
-                                size="large"
-                                style={{ width: "120px" }}
-                                onClick={() => recordStat("steal")}
-                              >
-                                Robo
-                              </Button>
-                            )}
-                            {hasPermission("canEditBlocks") && (
-                              <Button
-                                type="primary"
-                                size="large"
-                                style={{ width: "120px" }}
-                                onClick={() => recordStat("block")}
-                              >
-                                Tapón
-                              </Button>
-                            )}
-                          </Space>
-                        </div>
-                      )}
-
-                    {/* Errors - Show for REBOUNDER_ASSISTS (turnovers), ALL_AROUND, ADMIN */}
-                    {(hasPermission("canEditTurnovers") ||
-                      hasPermission("canEditPersonalFouls")) && (
-                        <div>
-                          <Title level={5}>Errores</Title>
-                          <Space>
-                            {hasPermission("canEditTurnovers") && (
-                              <Button
-                                type="primary"
-                                danger
-                                size="large"
-                                style={{ width: "120px" }}
-                                onClick={() => recordStat("turnover")}
-                              >
-                                Pérdida
-                              </Button>
-                            )}
-                            {hasPermission("canEditPersonalFouls") && (
-                              <Button
-                                type="primary"
-                                style={{
-                                  width: "120px",
-                                  backgroundColor: "#ff7a45",
-                                  borderColor: "#ff7a45",
-                                }}
-                                onClick={() => recordStat("foul")}
-                              >
-                                Falta Personal
-                              </Button>
-                            )}
-                          </Space>
-                        </div>
-                      )}
-
-                    {/* Current Stats - Always show if available */}
-                    {statsModal.player?.stats && (
-                      <div style={{ marginTop: 24 }}>
-                        <Title level={5}>Estadísticas Actuales</Title>
-                        <Row gutter={[16, 16]}>
-                          <Col span={6}>
-                            <Statistic
-                              title="Puntos"
-                              value={statsModal.player.stats.puntos}
-                            />
-                          </Col>
-                          <Col span={6}>
-                            <Statistic
-                              title="Rebotes"
-                              value={statsModal.player.stats.rebotes}
-                            />
-                          </Col>
-                          <Col span={6}>
-                            <Statistic
-                              title="Asistencias"
-                              value={statsModal.player.stats.asistencias}
-                            />
-                          </Col>
-                          <Col span={6}>
-                            <Statistic
-                              title="Minutos"
-                              value={Math.floor(
-                                statsModal.player.stats.minutos / 60
-                              )}
-                            />
-                          </Col>
-                          <Col span={6}>
-                            <Statistic
-                              title="Robos"
-                              value={statsModal.player.stats.robos}
-                            />
-                          </Col>
-                          <Col span={6}>
-                            <Statistic
-                              title="Tapones"
-                              value={statsModal.player.stats.tapones}
-                            />
-                          </Col>
-                          <Col span={6}>
-                            <Statistic
-                              title="Faltas"
-                              value={
-                                statsModal.player.stats.faltasPersonales || 0
-                              }
-                            />
-                          </Col>
-                          <Col span={6}>
-                            <Statistic
-                              title="Pérdidas"
-                              value={statsModal.player.stats.perdidas || 0}
-                            />
-                          </Col>
-                          <Col span={12}>
-                            <Statistic
-                              title="Tiros de Campo"
-                              value={`${statsModal.player.stats.tirosAnotados}/${statsModal.player.stats.tirosIntentados}`}
-                              suffix={`(${Math.round(
-                                (statsModal.player.stats.tirosAnotados /
-                                  statsModal.player.stats.tirosIntentados || 0) *
-                                100
-                              )}%)`}
-                            />
-                          </Col>
-                        </Row>
-                      </div>
-                    )}
-                  </Space>
-                </div>
-              </Tabs.TabPane>
-            )}
-        </Tabs>
-      </Modal>
+        onRecordShot={recordShot}
+        onRecordStat={recordStat}
+        hasPermission={(permission: string) => hasPermission(permission as any)}
+      />
     </div>
   );
 };

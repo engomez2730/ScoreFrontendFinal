@@ -207,6 +207,44 @@ const permissionService = {
           canManagePermissions: false,
           canViewAllStats: true,
         };
+      case "TIME_CONTROLLER":
+        return {
+          // Solo control de tiempo y cuartos
+          canControlTime: true,
+          canEndQuarter: true,
+          canEditPoints: false,
+          canEditRebounds: false,
+          canEditAssists: false,
+          canEditSteals: false,
+          canEditBlocks: false,
+          canEditTurnovers: false,
+          canEditShots: false,
+          canEditFreeThrows: false,
+          canEditPersonalFouls: false,
+          canMakeSubstitutions: false,
+          canSetStarters: false,
+          canManagePermissions: false,
+          canViewAllStats: true,
+        };
+      case "SUPER_ADMIN":
+        return {
+          // Todos los permisos (igual que ADMIN)
+          canEditPoints: true,
+          canEditRebounds: true,
+          canEditAssists: true,
+          canEditSteals: true,
+          canEditBlocks: true,
+          canEditTurnovers: true,
+          canEditShots: true,
+          canEditFreeThrows: true,
+          canEditPersonalFouls: true,
+          canControlTime: true,
+          canMakeSubstitutions: true,
+          canEndQuarter: true,
+          canSetStarters: true,
+          canManagePermissions: true,
+          canViewAllStats: true,
+        };
       case "USER":
       default:
         return {
