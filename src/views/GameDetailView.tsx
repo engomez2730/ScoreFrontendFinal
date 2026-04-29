@@ -687,9 +687,13 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     
     console.log("💾 Auto-save to BD enabled (every 10 seconds)");
 
-    const interval = setInterval(async () => {
+    const interval = setInterval(() => {
+      // Flag set INSIDE the state updater, handled OUTSIDE to avoid side-effects in a pure updater
+      let quarterEnded = false;
+
       setGameTime((prev) => {
         const newTime = prev - 1;
+
         if (newTime >= 0) {
           const gameTimeElapsed = QUARTER_LENGTH - newTime; // How much game time has passed
           updateGameTime(gameTimeElapsed);
@@ -700,7 +704,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           const currentAwayTeam = awayTeamRef.current;
           
           if (currentHomeTeam && currentAwayTeam) {
-            // ✅ CRITICAL FIX: Only update player minutes if clock is actually running
+            // Only update player minutes if clock is actually running
             if (!isClockRunningRef.current) {
               console.log('⏸️ Clock paused - skipping player minutes update');
               return newTime;
@@ -747,16 +751,37 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           }
           return newTime;
         }
-        // Timer reached 0:00 - handle quarter end
-        console.log("Timer reached 0:00, handling quarter end...");
-        clearInterval(interval);
-        setTimerInterval(null);
-        setIsClockRunning(false);
 
-        // Automatically go to next quarter
-        handleQuarterEnd();
+        // Timer reached 0:00 – signal to be handled outside the state updater
+        quarterEnded = true;
         return 0;
       });
+
+      // ── Handle quarter end OUTSIDE the state updater ──────────────────────
+      // Calling async functions or clearInterval inside setGameTime's updater is
+      // a React anti-pattern (pure-function violation). We handle it here instead.
+      if (quarterEnded) {
+        console.log("Timer reached 0:00, handling quarter end...");
+
+        // 1. Stop the game-tick interval immediately
+        clearInterval(interval);
+        setTimerInterval(null);
+
+        // 2. Update the ref synchronously so no further minute-accumulation
+        //    happens even if a stale tick somehow fires
+        isClockRunningRef.current = false;
+        setIsClockRunning(false);
+
+        // 3. Stop the auto-save interval immediately (don't wait for stopTimer)
+        if (autoSaveIntervalRef.current) {
+          clearInterval(autoSaveIntervalRef.current);
+          autoSaveIntervalRef.current = null;
+          console.log("⏹️ Auto-save interval stopped on quarter end");
+        }
+
+        // 4. Handle quarter transition (saves minutes to backend, advances quarter)
+        handleQuarterEnd();
+      }
     }, 1000);
 
     console.log("Created new interval with ID:", interval);
@@ -806,6 +831,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     console.log("⏹️ STOPPING TIMER - Plus-minus update process starting...");
     console.log("Current playerPlusMinus state:", playerPlusMinus);
     console.log("Stopping timer. Current interval ID:", timerInterval);
+
+    // Update ref SYNCHRONOUSLY so any in-flight tick knows immediately
+    isClockRunningRef.current = false;
     
     // Clear the game timer interval
     if (timerInterval) {
