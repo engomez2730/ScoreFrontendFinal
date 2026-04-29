@@ -18,7 +18,10 @@ import {
   PlayCircleOutlined,
   PauseCircleOutlined,
   BarChartOutlined,
+  DownloadOutlined,
 } from "@ant-design/icons";
+import { generateGamePdf } from "../utils/gamePdfGenerator";
+import { playerAPI } from "../services/apiService";
 
 import { gameAPI, teamAPI } from "../services/apiService";
 import gameService from "../api/gameService";
@@ -276,6 +279,33 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showBenchInFullscreen, setShowBenchInFullscreen] = useState(false);
   const isMobile = window.innerWidth < 768;
+
+  // PDF download state
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    if (!game) return;
+    try {
+      setPdfLoading(true);
+      // Fetch full game data (includes all detailed stats)
+      const gameResponse = await gameAPI.getGame(game.id);
+      const fullGameData = gameResponse.data;
+
+      // Fetch all players to build a name lookup map
+      const playersResponse = await playerAPI.getPlayers();
+      const playersMap: Record<number, any> = {};
+      (playersResponse.data as any[]).forEach((p: any) => {
+        playersMap[p.id] = p;
+      });
+
+      generateGamePdf(fullGameData, playersMap);
+    } catch (err) {
+      console.error("Error generating PDF:", err);
+      message.error("No se pudo generar el PDF del resumen");
+    } finally {
+      setPdfLoading(false);
+    }
+  };
 
   // Debug: Log team state changes
   useEffect(() => {
@@ -1700,12 +1730,23 @@ const GameDetailView: React.FC = (): React.ReactNode => {
             <Text type="secondary">{game.event?.nombre || 'Partido'}</Text>
           </Col>
           <Col>
-            <Space>
+            <Space wrap>
               <Link to={`/games/${game.id}/stats`}>
                 <Button icon={<BarChartOutlined />} type="default">
                   Ver Estadísticas NBA
                 </Button>
               </Link>
+              {game.estado === "finished" && (
+                <Button
+                  icon={<DownloadOutlined />}
+                  type="primary"
+                  style={{ background: "#52c41a", borderColor: "#52c41a" }}
+                  loading={pdfLoading}
+                  onClick={handleDownloadPdf}
+                >
+                  Descargar Resumen PDF
+                </Button>
+              )}
               <Link to="/games">
                 <Button type="primary">Volver a Juegos</Button>
               </Link>
