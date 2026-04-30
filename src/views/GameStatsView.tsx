@@ -469,6 +469,13 @@ const GameStatsView: React.FC = () => {
     return player && player.teamId === gameData.teamAwayId;
   });
 
+  // Determine bench players from substitution history.
+  // A player is a BENCH player if they were ever substituted IN during the game.
+  // Everyone else started the game (original lineup / quinteto titular).
+  // This is more reliable than stat.isStarter which the backend may not set correctly.
+  const benchPlayerIds = new Set(gameData.substitutions.map(sub => sub.playerInId));
+  const isStarterStat = (stat: PlayerStats) => !benchPlayerIds.has(stat.playerId);
+
   // Calculate team totals
   const calculateTeamTotals = (teamStats: PlayerStats[]) => {
     return teamStats.reduce((totals, stat) => ({
@@ -1002,7 +1009,7 @@ const GameStatsView: React.FC = () => {
                   <div style={{ textAlign: "center", padding: "16px 8px" }}>
                     <Title level={2} style={{ margin: 0, color: "#52c41a" }}>
                       {homeStats
-                        .filter(stat => stat.isStarter)
+                        .filter(stat => isStarterStat(stat))
                         .reduce((total, stat) => total + stat.puntos, 0)}
                     </Title>
                     <Text strong>Puntos del Quinteto</Text>
@@ -1012,7 +1019,7 @@ const GameStatsView: React.FC = () => {
                   <div style={{ textAlign: "center", padding: "16px 8px" }}>
                     <Title level={2} style={{ margin: 0, color: "#fa8c16" }}>
                       {homeStats
-                        .filter(stat => !stat.isStarter)
+                        .filter(stat => !isStarterStat(stat))
                         .reduce((total, stat) => total + stat.puntos, 0)}
                     </Title>
                     <Text strong>Puntos de la Banca</Text>
@@ -1037,7 +1044,7 @@ const GameStatsView: React.FC = () => {
                   <div style={{ textAlign: "center", padding: "16px 8px" }}>
                     <Title level={2} style={{ margin: 0, color: "#52c41a" }}>
                       {awayStats
-                        .filter(stat => stat.isStarter)
+                        .filter(stat => isStarterStat(stat))
                         .reduce((total, stat) => total + stat.puntos, 0)}
                     </Title>
                     <Text strong>Puntos del Quinteto</Text>
@@ -1047,7 +1054,7 @@ const GameStatsView: React.FC = () => {
                   <div style={{ textAlign: "center", padding: "16px 8px" }}>
                     <Title level={2} style={{ margin: 0, color: "#fa8c16" }}>
                       {awayStats
-                        .filter(stat => !stat.isStarter)
+                        .filter(stat => !isStarterStat(stat))
                         .reduce((total, stat) => total + stat.puntos, 0)}
                     </Title>
                     <Text strong>Puntos de la Banca</Text>

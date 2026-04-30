@@ -6,6 +6,7 @@
 import { useState, useCallback } from 'react';
 import { message } from 'antd';
 import { gameAPI } from '../services/apiService';
+import socketService from '../api/socketService';
 import type { Player, Team } from '../types/game.types';
 
 interface SubstitutionState {
@@ -194,6 +195,20 @@ export const useSubstitutions = ({
           selectedTeam: null,
           playerOut: null,
         });
+
+        // Notify all other clients via socket so they update their active player list.
+        // The backend will emit 'substitutionMade' to everyone in the game room when it
+        // processes this socket event, guaranteeing real-time sync for scorers/rebounders.
+        try {
+          socketService.makeSubstitution({
+            gameId: Number(gameId),
+            playerInId: Number(playerIn.id),
+            playerOutId: Number(substitutionState.playerOut!.id),
+            timestamp: new Date().toISOString(),
+          });
+        } catch {
+          // Socket emit is best-effort; REST already persisted the change.
+        }
       } catch (err: any) {
         console.error('Error making substitution:', err);
         message.error({

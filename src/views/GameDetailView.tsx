@@ -335,6 +335,35 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     }
   }, [homeTeam, awayTeam]);
 
+  // Polling fallback: keep active-player list in sync for scorers/rebounders
+  // even when the backend does not emit a socket event after REST substitutions.
+  useEffect(() => {
+    if (!id || !game || game.estado !== 'in_progress') return;
+
+    const syncActivePlayers = async () => {
+      try {
+        const activePlayers = await gameAPI.getActivePlayers(id);
+        if (!activePlayers.data) return;
+
+        const homeActiveIds = (activePlayers.data.homeTeam?.players || []).map((p: Player) => p.id);
+        const awayActiveIds = (activePlayers.data.awayTeam?.players || []).map((p: Player) => p.id);
+
+        setHomeTeam(prev =>
+          prev ? { ...prev, players: prev.players.map(p => ({ ...p, isOnCourt: homeActiveIds.includes(p.id) })) } : null
+        );
+        setAwayTeam(prev =>
+          prev ? { ...prev, players: prev.players.map(p => ({ ...p, isOnCourt: awayActiveIds.includes(p.id) })) } : null
+        );
+      } catch {
+        // Silent fail — this is a background sync
+      }
+    };
+
+    // Poll every 8 seconds as a fallback guarantee
+    const pollingInterval = setInterval(syncActivePlayers, 8000);
+    return () => clearInterval(pollingInterval);
+  }, [id, game?.estado]);
+
   // Get 5 on-court and bench players for each team
   const getOnCourtPlayers = (team: Team) => {
     return team.players.filter((p) => p.isOnCourt);
