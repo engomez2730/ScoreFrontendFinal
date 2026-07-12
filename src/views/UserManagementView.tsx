@@ -102,8 +102,8 @@ const UserManagementView: React.FC = () => {
       console.error("Error creating/updating user:", error);
       
       // Manejo detallado de errores
-      if (error?.response?.data?.message) {
-        message.error(error.response.data.message);
+      if (error?.response?.data?.error || error?.response?.data?.message) {
+        message.error(error.response.data.error || error.response.data.message);
       } else if (error?.response?.status === 404) {
         message.error("Endpoint no encontrado. Verifica que el backend esté ejecutándose.");
       } else if (error?.response?.status === 409) {

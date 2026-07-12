@@ -132,10 +132,14 @@ const TeamsView: React.FC = () => {
         icon: <CheckCircleOutlined style={{ color: "#52c41a" }} />,
       });
       loadTeams();
-    } catch (err) {
+    } catch (err: any) {
+      console.error("Error al eliminar equipo:", err.response || err);
+      const backendMessage = err.response?.data?.message || err.response?.data?.error;
       notification.error({
         message: "Error",
-        description: "No se pudo eliminar el equipo",
+        description:
+          backendMessage ||
+          `No se pudo eliminar el equipo (status ${err.response?.status ?? "desconocido"})`,
         icon: <CloseCircleOutlined style={{ color: "#ff4d4f" }} />,
       });
     }

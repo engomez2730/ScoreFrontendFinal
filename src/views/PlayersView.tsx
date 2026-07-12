@@ -49,7 +49,7 @@ interface PlayerFormValues {
 }
 
 const PlayersView: React.FC = () => {
-  const { notification } = App.useApp();
+  const { notification, modal } = App.useApp();
   const [players, setPlayers] = useState<Player[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -146,10 +146,14 @@ const PlayersView: React.FC = () => {
       setEditingPlayer(null);
       form.resetFields();
       fetchPlayers();
-    } catch (err) {
+    } catch (err: any) {
+      console.error("Error al actualizar jugador:", err.response || err);
+      const backendMessage = err.response?.data?.message || err.response?.data?.error;
       notification.error({
         message: "Error al actualizar jugador",
-        description: "No se pudo actualizar el jugador",
+        description:
+          backendMessage ||
+          `No se pudo actualizar el jugador (status ${err.response?.status ?? "desconocido"})`,
         icon: <CloseCircleOutlined style={{ color: "#ff4d4f" }} />,
       });
     }
@@ -164,10 +168,14 @@ const PlayersView: React.FC = () => {
         icon: <CheckCircleOutlined style={{ color: "#52c41a" }} />,
       });
       fetchPlayers();
-    } catch (err) {
+    } catch (err: any) {
+      console.error("Error al eliminar jugador:", err.response || err);
+      const backendMessage = err.response?.data?.message || err.response?.data?.error;
       notification.error({
         message: "Error al eliminar jugador",
-        description: "No se pudo eliminar el jugador",
+        description:
+          backendMessage ||
+          `No se pudo eliminar el jugador (status ${err.response?.status ?? "desconocido"})`,
         icon: <CloseCircleOutlined style={{ color: "#ff4d4f" }} />,
       });
     }
@@ -231,7 +239,7 @@ const PlayersView: React.FC = () => {
             danger
             icon={<DeleteOutlined />}
             onClick={() =>
-              Modal.confirm({
+              modal.confirm({
                 title: "¿Estás seguro de eliminar este jugador?",
                 content: "Esta acción no se puede deshacer",
                 okText: "Sí",
