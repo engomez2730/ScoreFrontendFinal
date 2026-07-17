@@ -100,15 +100,20 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   // Use refs to hold latest team data for the timer to avoid closure issues
   const homeTeamRef = useRef<Team | null>(null);
   const awayTeamRef = useRef<Team | null>(null);
-  
+  const gameRef = useRef<Game | null>(null);
+
   // Update refs whenever teams change
   useEffect(() => {
     homeTeamRef.current = homeTeam;
   }, [homeTeam]);
-  
+
   useEffect(() => {
     awayTeamRef.current = awayTeam;
   }, [awayTeam]);
+
+  useEffect(() => {
+    gameRef.current = game;
+  }, [game]);
   
   const [isLineupModalVisible, setIsLineupModalVisible] = useState(false);
 
@@ -124,18 +129,23 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     const savedTime = localStorage.getItem(`gameTime_${id}`);
     return savedTime ? parseInt(savedTime) : QUARTER_LENGTH;
   });
-  const [isClockRunning, setIsClockRunning] = useState(() => {
-    const saved = localStorage.getItem(`game-${id}-clockRunning`);
-    return saved === 'true';
-  });
+  // Always start paused. Restoring "running" from localStorage without actually
+  // recreating the setInterval left the button showing "Pausar" (implying the
+  // clock was live) while nothing was ticking, so minutes silently stopped
+  // accumulating until the user toggled pause/resume manually. Requiring an
+  // explicit resume after every mount removes that false-positive state.
+  const [isClockRunning, setIsClockRunning] = useState(false);
   const [timerInterval, setTimerInterval] = useState<ReturnType<
     typeof setInterval
   > | null>(null);
   
-  // Track player minutes in milliseconds - will be restored from localStorage in useEffect
-  // NOTE: We can't use localStorage in useState initializer because 'id' from useParams
-  // might not be available yet during initial render
+  // Track player minutes in milliseconds. Source of truth is the backend
+  // (PlayerGameStats.minutos); loaded and merged in the loadGameData hydration effect.
   const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>({});
+  const playerMinutesRef = useRef<Record<number, number>>({});
+  useEffect(() => {
+    playerMinutesRef.current = playerMinutes;
+  }, [playerMinutes]);
   // Track player plus-minus: {playerId: plusMinusValue}
   const [playerPlusMinus, setPlayerPlusMinus] = useState<
     Record<number, number>
@@ -155,34 +165,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   // Auto-save interval ref
   const autoSaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Restore playerMinutes from localStorage when component mounts (once id is available)
-  useEffect(() => {
-    if (id &&Object.keys(playerMinutes).length === 0) {
-      const saved = localStorage.getItem(`game-${id}-playerMinutes`);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          console.log(`📥 INITIAL LOAD: Restored player minutes from localStorage:`, parsed);
-          setPlayerMinutes(parsed);
-        } catch (e) {
-          console.error('Error parsing saved player minutes:', e);
-        }
-      }
-    }
-  }, [id]); // Only run when id becomes available
-
   // ✅ NEW: Sync isClockRunning state with ref for use in interval callbacks
   useEffect(() => {
     isClockRunningRef.current = isClockRunning;
   }, [isClockRunning]);
-
-  // Save playerMinutes to localStorage whenever it changes
-  useEffect(() => {
-    if (id && Object.keys(playerMinutes).length > 0) {
-      localStorage.setItem(`game-${id}-playerMinutes`, JSON.stringify(playerMinutes));
-      console.log(`💾 Saved player minutes to localStorage`);
-    }
-  }, [playerMinutes, id]);
 
   // Save gameTime to localStorage whenever it changes
   useEffect(() => {
@@ -191,13 +177,6 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     }
   }, [gameTime, id, game]);
 
-  // Save clock running state to localStorage
-  useEffect(() => {
-    if (id) {
-      localStorage.setItem(`game-${id}-clockRunning`, isClockRunning.toString());
-    }
-  }, [isClockRunning, id]);
-  
   // Save active players (isOnCourt) to localStorage whenever teams change
   useEffect(() => {
     if (id && homeTeam && awayTeam) {
@@ -605,9 +584,15 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     }
   }, [gameTime, id, game]);
 
-  // Helper function to save player minutes to backend
+  // Helper function to save player minutes to backend.
+  // Reads from refs (not render-scoped state) so it stays correct when called
+  // from listeners registered once, e.g. on document visibilitychange.
   const savePlayerMinutesToBackend = async (silent = false) => {
-    if (!game || !homeTeam || !awayTeam) {
+    const currentGame = gameRef.current;
+    const currentHomeTeam = homeTeamRef.current;
+    const currentAwayTeam = awayTeamRef.current;
+
+    if (!currentGame || !currentHomeTeam || !currentAwayTeam) {
       if (!silent) {
         message.error("Cannot save game state: missing game or team data");
       }
@@ -620,19 +605,20 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       } else {
         console.log("💾 Auto-saving player minutes to backend...");
       }
-      
+
       const playerMinutesPayload: Record<string, number> = {};
-      const allPlayers = [...homeTeam.players, ...awayTeam.players];
+      const allPlayers = [...currentHomeTeam.players, ...currentAwayTeam.players];
+      const currentPlayerMinutes = playerMinutesRef.current;
 
       allPlayers.forEach((player) => {
-        const millisecondsPlayed = playerMinutes[player.id] || 0;
+        const millisecondsPlayed = currentPlayerMinutes[player.id] || 0;
         playerMinutesPayload[player.id.toString()] = millisecondsPlayed;
         if (!silent && millisecondsPlayed > 0) {
           console.log(`  ${player.nombre} ${player.apellido} (ID: ${player.id}): ${Math.round(millisecondsPlayed/1000)} seconds`);
         }
       });
 
-      await gameAPI.updatePlayerMinutes(game.id, playerMinutesPayload);
+      await gameAPI.updatePlayerMinutes(currentGame.id, playerMinutesPayload);
       
       if (!silent) {
         console.log("✅ Player minutes saved successfully to backend");
@@ -1306,6 +1292,19 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     };
   }, [id, user]); // Added user dependency
 
+  // Flush player minutes to the backend when the tab is backgrounded/closed.
+  // Registered once and reads from refs, so it always sees the latest values
+  // even though the clock ticks every second (avoids re-subscribing constantly).
+  useEffect(() => {
+    const flushOnHide = () => {
+      if (document.hidden && isClockRunningRef.current) {
+        savePlayerMinutesToBackend(true);
+      }
+    };
+    document.addEventListener('visibilitychange', flushOnHide);
+    return () => document.removeEventListener('visibilitychange', flushOnHide);
+  }, []);
+
   // Warn user before reloading/closing the page if game is in progress
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -1502,39 +1501,28 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         setHomeTeam(newHomeTeam);
         setAwayTeam(newAwayTeam);
 
-        // Initialize player minutes - use the most recent data from: current state, BD stats, localStorage, or 0
+        // Initialize player minutes from the backend, which is the source of truth.
+        // We keep Math.max against in-memory state (not localStorage) purely to avoid
+        // clobbering a value this same session already accumulated but hasn't pushed yet.
         const allPlayers = [...newHomeTeam.players, ...newAwayTeam.players];
         setPlayerMinutes((prev) => {
-          // Always use the maximum value from all sources (state, BD, localStorage)
           const initialPlayerMinutes: Record<number, number> = {};
-          const localStorageData = localStorage.getItem(`game-${id}-playerMinutes`);
-          let localMinutes: Record<number, number> = {};
-          
-          if (localStorageData) {
-            try {
-              localMinutes = JSON.parse(localStorageData);
-            } catch (e) {
-              console.error('Error parsing localStorage minutes:', e);
-            }
-          }
-          
+
           allPlayers.forEach((player) => {
-            // Priority: MAX(current state, localStorage, BD stats)
             const currentMinutes = prev[player.id] || 0;
             const statsFromBD = game.stats?.find((s: any) => s.playerId === player.id);
-            const minutesFromBD = statsFromBD?.minutos || 0; // BD stores in milliseconds
-            const minutesFromLocal = localMinutes[player.id] || 0;
-            
-            // Use the maximum value from all three sources
-            const minutes = Math.max(currentMinutes, minutesFromBD, minutesFromLocal);
+            // PlayerGameStats.minutos is stored in seconds on the backend; convert to ms.
+            const minutesFromBD = (statsFromBD?.minutos || 0) * 1000;
+
+            const minutes = Math.max(currentMinutes, minutesFromBD);
             initialPlayerMinutes[player.id] = minutes;
-            
+
             if (minutes > 0) {
-              console.log(`📥 Player ${player.nombre} minutes: ${Math.round(minutes/1000)}s (State: ${Math.round(currentMinutes/1000)}s, BD: ${Math.round(minutesFromBD/1000)}s, Local: ${Math.round(minutesFromLocal/1000)}s)`);
+              console.log(`📥 Player ${player.nombre} minutes: ${Math.round(minutes/1000)}s (State: ${Math.round(currentMinutes/1000)}s, BD: ${Math.round(minutesFromBD/1000)}s)`);
             }
           });
-          
-          console.log("💾 Player minutes initialized/updated from all sources");
+
+          console.log("💾 Player minutes initialized/updated from backend");
           return initialPlayerMinutes;
         });
 
@@ -2059,7 +2047,9 @@ const GameDetailView: React.FC = (): React.ReactNode => {
               substitutionState={substitutionState}
               onBenchPlayerClick={(player, team) => {
                 if (substitutionState.isSelecting && substitutionState.selectedTeam === team) {
-                  completeSubstitution(player);
+                  // Flush accumulated minutes right at the substitution boundary so a
+                  // reload immediately after a sub doesn't lose the in-progress stint.
+                  completeSubstitution(player).then(() => savePlayerMinutesToBackend(true));
                 } else if (!substitutionState.isSelecting) {
                   openStatsModal(player);
                 }
