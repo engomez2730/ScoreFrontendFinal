@@ -29,6 +29,14 @@ export const gameAPI = {
   resetGameTime: (gameId: string | number) =>
     api.post(`/games/${gameId}/reset-time`),
 
+  // Resume the server-authoritative clock
+  startClock: (gameId: string | number) =>
+    api.post(`/games/${gameId}/clock/start`),
+
+  // Pause the clock; backend computes and persists elapsed minutes
+  pauseClock: (gameId: string | number) =>
+    api.post(`/games/${gameId}/clock/pause`),
+
   // Next quarter
   nextQuarter: (gameId: string | number) =>
     api.post(`/games/${gameId}/next-quarter`),
@@ -85,7 +93,6 @@ export const gameAPI = {
       shotType: string;
       made: boolean;
       gameTime: number;
-      playerMinutes: number;
     }
   ) => api.post(`/games/${gameId}/record-shot`, shotData),
 

@@ -21,7 +21,6 @@ interface UseSubstitutionsProps {
   awayTeam: Team | null;
   gameTime: number;
   quarterLength: number;
-  playerMinutes: Record<number, number>;
   hasPermission: (permission: any) => boolean;
   onTeamUpdate: (team: 'home' | 'away', players: Player[]) => void;
 }
@@ -32,7 +31,6 @@ export const useSubstitutions = ({
   awayTeam,
   gameTime,
   quarterLength,
-  playerMinutes,
   hasPermission,
   onTeamUpdate,
 }: UseSubstitutionsProps) => {
@@ -154,12 +152,6 @@ export const useSubstitutions = ({
 
         // Update local state
         console.log('🔄 Updating team states for substitution...');
-        console.log(
-          `   Player OUT: ${substitutionState.playerOut.nombre} (ID: ${substitutionState.playerOut.id}) - Current minutes: ${Math.round((playerMinutes[substitutionState.playerOut.id] || 0) / 1000)}s`
-        );
-        console.log(
-          `   Player IN: ${playerIn.nombre} (ID: ${playerIn.id}) - Current minutes: ${Math.round((playerMinutes[playerIn.id] || 0) / 1000)}s`
-        );
 
         if (substitutionState.selectedTeam === 'home' && homeTeam) {
           const updatedPlayers = homeTeam.players.map((p: Player) => {
@@ -224,7 +216,6 @@ export const useSubstitutions = ({
       awayTeam,
       gameTime,
       quarterLength,
-      playerMinutes,
       onTeamUpdate,
     ]
   );

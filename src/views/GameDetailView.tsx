@@ -55,6 +55,8 @@ interface Game {
   overtimeLength: number;
   quarterTime: number;
   isOvertime?: boolean;
+  isClockRunning?: boolean;
+  clockStartedAt?: string | null;
   event?: {
     id: number;
     nombre: string;
@@ -96,25 +98,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   const [game, setGame] = useState<Game | null>(null);
   const [homeTeam, setHomeTeam] = useState<Team | null>(null);
   const [awayTeam, setAwayTeam] = useState<Team | null>(null);
-  
-  // Use refs to hold latest team data for the timer to avoid closure issues
-  const homeTeamRef = useRef<Team | null>(null);
-  const awayTeamRef = useRef<Team | null>(null);
-  const gameRef = useRef<Game | null>(null);
 
-  // Update refs whenever teams change
-  useEffect(() => {
-    homeTeamRef.current = homeTeam;
-  }, [homeTeam]);
-
-  useEffect(() => {
-    awayTeamRef.current = awayTeam;
-  }, [awayTeam]);
-
-  useEffect(() => {
-    gameRef.current = game;
-  }, [game]);
-  
   const [isLineupModalVisible, setIsLineupModalVisible] = useState(false);
 
   // Lineup selection hook
@@ -125,27 +109,15 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   } = useLineupSelection({ maxPlayers: 5 });
 
   const QUARTER_LENGTH = 600; // 10 minutes in seconds
-  const [gameTime, setGameTime] = useState(() => {
-    const savedTime = localStorage.getItem(`gameTime_${id}`);
-    return savedTime ? parseInt(savedTime) : QUARTER_LENGTH;
-  });
-  // Always start paused. Restoring "running" from localStorage without actually
-  // recreating the setInterval left the button showing "Pausar" (implying the
-  // clock was live) while nothing was ticking, so minutes silently stopped
-  // accumulating until the user toggled pause/resume manually. Requiring an
-  // explicit resume after every mount removes that false-positive state.
-  const [isClockRunning, setIsClockRunning] = useState(false);
-  const [timerInterval, setTimerInterval] = useState<ReturnType<
-    typeof setInterval
-  > | null>(null);
-  
-  // Track player minutes in milliseconds. Source of truth is the backend
-  // (PlayerGameStats.minutos); loaded and merged in the loadGameData hydration effect.
-  const [playerMinutes, setPlayerMinutes] = useState<Record<number, number>>({});
-  const playerMinutesRef = useRef<Record<number, number>>({});
-  useEffect(() => {
-    playerMinutesRef.current = playerMinutes;
-  }, [playerMinutes]);
+
+  // The clock is server-authoritative: Game.isClockRunning / clockStartedAt
+  // live in the backend, and every connected device just derives the display
+  // from them. No client computes or pushes elapsed time itself, which is
+  // what previously let two connected devices/roles each believe the clock
+  // was running and independently (and inconsistently) tick it forward.
+  const isClockRunning = game?.isClockRunning ?? false;
+  const [gameTime, setGameTime] = useState(QUARTER_LENGTH);
+
   // Track player plus-minus: {playerId: plusMinusValue}
   const [playerPlusMinus, setPlayerPlusMinus] = useState<
     Record<number, number>
@@ -156,26 +128,27 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     return saved ? JSON.parse(saved) : {};
   });
 
-  // Track last timer update for precise time tracking using useRef to avoid closure issues
-  const lastTimerUpdateRef = useRef<number>(Date.now());
-  
-  // ✅ NEW: Ref to track clock running state for use inside interval callbacks
-  const isClockRunningRef = useRef<boolean>(isClockRunning);
-  
-  // Auto-save interval ref
-  const autoSaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // ✅ NEW: Sync isClockRunning state with ref for use in interval callbacks
+  // Recompute the displayed countdown from the server's clock state. This is
+  // read-only display math (quarterLength - elapsed persisted in the DB - live
+  // elapsed since clockStartedAt) — it never writes anywhere, so any number of
+  // viewers can run this same effect without racing each other.
   useEffect(() => {
-    isClockRunningRef.current = isClockRunning;
-  }, [isClockRunning]);
+    if (!game) return;
 
-  // Save gameTime to localStorage whenever it changes
-  useEffect(() => {
-    if (id && game) {
-      localStorage.setItem(`gameTime_${id}`, gameTime.toString());
+    if (!game.isClockRunning || !game.clockStartedAt) {
+      setGameTime(Math.max(0, QUARTER_LENGTH - (game.gameTime || 0)));
+      return;
     }
-  }, [gameTime, id, game]);
+
+    const clockStartedAtMs = new Date(game.clockStartedAt).getTime();
+    const tick = () => {
+      const liveElapsed = Math.floor((Date.now() - clockStartedAtMs) / 1000);
+      setGameTime(Math.max(0, QUARTER_LENGTH - (game.gameTime || 0) - liveElapsed));
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [game?.isClockRunning, game?.clockStartedAt, game?.gameTime]);
 
   // Save active players (isOnCourt) to localStorage whenever teams change
   useEffect(() => {
@@ -243,7 +216,6 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       awayTeam,
       gameTime,
       quarterLength: QUARTER_LENGTH,
-      playerMinutes,
       hasPermission,
       onTeamUpdate: (team, players) => {
         if (team === 'home') {
@@ -537,20 +509,11 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       const currentGameTime = QUARTER_LENGTH - gameTime; // Convert countdown time to elapsed time
       console.log("Game time:", currentGameTime);
 
-      // Get player's current minutes (convert from milliseconds to seconds)
-      const playerCurrentMinutes = Math.floor(
-        (playerMinutes[statsModal.player.id] || 0) / 1000
-      );
-      console.log(
-        `Player ${statsModal.player.nombre} current minutes: ${playerCurrentMinutes} seconds`
-      );
-
       await gameAPI.recordShot(game.id, {
         playerId: statsModal.player.id,
         shotType,
         made,
         gameTime: currentGameTime,
-        playerMinutes: playerCurrentMinutes,
       });
 
       console.log("Shot recorded successfully");
@@ -594,227 +557,19 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     }
   }, [gameTime, id, game]);
 
-  // Helper function to save player minutes to backend.
-  // Reads from refs (not render-scoped state) so it stays correct when called
-  // from listeners registered once, e.g. on document visibilitychange.
-  const savePlayerMinutesToBackend = async (silent = false) => {
-    const currentGame = gameRef.current;
-    const currentHomeTeam = homeTeamRef.current;
-    const currentAwayTeam = awayTeamRef.current;
-
-    if (!currentGame || !currentHomeTeam || !currentAwayTeam) {
-      if (!silent) {
-        message.error("Cannot save game state: missing game or team data");
-      }
-      return;
-    }
-
-    try {
-      if (!silent) {
-        console.log("💾 === SAVING PLAYER MINUTES TO BACKEND ===");
-      } else {
-        console.log("💾 Auto-saving player minutes to backend...");
-      }
-
-      const playerMinutesPayload: Record<string, number> = {};
-      const allPlayers = [...currentHomeTeam.players, ...currentAwayTeam.players];
-      const currentPlayerMinutes = playerMinutesRef.current;
-
-      allPlayers.forEach((player) => {
-        const millisecondsPlayed = currentPlayerMinutes[player.id] || 0;
-        playerMinutesPayload[player.id.toString()] = millisecondsPlayed;
-        if (!silent && millisecondsPlayed > 0) {
-          console.log(`  ${player.nombre} ${player.apellido} (ID: ${player.id}): ${Math.round(millisecondsPlayed/1000)} seconds`);
-        }
-      });
-
-      await gameAPI.updatePlayerMinutes(currentGame.id, playerMinutesPayload);
-      
-      if (!silent) {
-        console.log("✅ Player minutes saved successfully to backend");
-        message.success("Minutos guardados exitosamente");
-      } else {
-        console.log("✅ Auto-save completed");
-      }
-    } catch (error: any) {
-      console.error("Error saving player minutes:", error);
-      if (!silent) {
-        message.error(`Failed to save player minutes: ${error?.message || 'Unknown error'}`);
-      }
-    }
-  };
-
-  // Format time as MM:SS
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  // Reset player minutes when game starts
-  const resetPlayerMinutes = () => {
-    // ✅ SAFETY: Only reset if game hasn't started yet
-    if (game?.estado !== 'scheduled') {
-      console.log('⚠️ Cannot reset player minutes - game already in progress');
-      return;
-    }
-    
-    const newPlayerMinutes: Record<number, number> = {};
-
-    // Initialize minutes for all players to 0
-    if (homeTeam && awayTeam) {
-      [...homeTeam.players, ...awayTeam.players].forEach((player) => {
-        newPlayerMinutes[player.id] = 0;
-      });
-    }
-
-    setPlayerMinutes(newPlayerMinutes);
-    console.log('✅ Player minutes reset to 0 (game in scheduled state)');
-  };
-
-  // Timer management functions (following documentation)
-  const updateGameTime = async (seconds: number) => {
+  // Pause the clock. The backend computes real elapsed time since
+  // clockStartedAt itself and credits it to every on-court player's minutos —
+  // this client (or any other viewer) never computes or sends elapsed time.
+  const stopTimer = async () => {
     if (!game) return;
-
     try {
-      await gameAPI.updateGameTime(game.id, seconds);
-    } catch (error) {
-      console.error("Error updating game time:", error);
+      await gameAPI.pauseClock(game.id);
+      // Refresh game + team/player data in one go so the just-flushed minutes
+      // show immediately (loadGameData re-fetches game.gameTime/isClockRunning too).
+      await loadGameData();
+    } catch (error: any) {
+      message.error(error.response?.data?.error || "No se pudo pausar el reloj");
     }
-  };
-
-  const startTimer = () => {
-    if (timerInterval) {
-      console.log(
-        "Timer already running, skipping. Current interval ID:",
-        timerInterval
-      );
-      return; // Already running
-    }
-
-    // Set the last timer update to now when starting the timer
-    const startTime = Date.now();
-    lastTimerUpdateRef.current = startTime;
-    console.log(`⏱️ ========================================`);
-    console.log(`⏱️ TIMER STARTED at timestamp: ${startTime}`);
-    console.log(`⏱️ Current game time: ${formatTime(gameTime)}`);
-    console.log(`⏱️ Current player minutes:`, Object.entries(playerMinutes).map(([id, ms]) => `Player ${id}: ${Math.round(ms/1000)}s`).join(', '));
-    console.log(`⏱️ ========================================`);
-    
-    // Start auto-save to BD every 10 seconds
-    if (autoSaveIntervalRef.current) {
-      clearInterval(autoSaveIntervalRef.current);
-    }
-    
-    autoSaveIntervalRef.current = setInterval(() => {
-      savePlayerMinutesToBackend(true); // silent mode
-    }, 10000); // Auto-save every 10 seconds
-    
-    console.log("💾 Auto-save to BD enabled (every 10 seconds)");
-
-    const interval = setInterval(() => {
-      // Flag set INSIDE the state updater, handled OUTSIDE to avoid side-effects in a pure updater
-      let quarterEnded = false;
-
-      setGameTime((prev) => {
-        const newTime = prev - 1;
-
-        if (newTime >= 0) {
-          const gameTimeElapsed = QUARTER_LENGTH - newTime; // How much game time has passed
-          updateGameTime(gameTimeElapsed);
-          
-          // Update minutes for players on court using precise timestamp calculation
-          // Use refs to get current team data and avoid closure issues
-          const currentHomeTeam = homeTeamRef.current;
-          const currentAwayTeam = awayTeamRef.current;
-          
-          if (currentHomeTeam && currentAwayTeam) {
-            // Only update player minutes if clock is actually running
-            if (!isClockRunningRef.current) {
-              console.log('⏸️ Clock paused - skipping player minutes update');
-              return newTime;
-            }
-            
-            const now = Date.now();
-            const elapsed = now - lastTimerUpdateRef.current;
-            
-            // CRITICAL: Update the ref IMMEDIATELY to prevent any time loss
-            lastTimerUpdateRef.current = now;
-            
-            const onCourtPlayers = [
-              ...currentHomeTeam.players.filter((p) => p.isOnCourt),
-              ...currentAwayTeam.players.filter((p) => p.isOnCourt),
-            ];
-
-            console.log(`⏱️ === TIMER TICK at ${now} (elapsed: ${elapsed}ms) ===`);
-
-            setPlayerMinutes((prev) => {
-              const updated = { ...prev };
-              const previousTotal = Object.values(prev).reduce((sum, val) => sum + val, 0);
-              
-              onCourtPlayers.forEach((player) => {
-                const oldTime = updated[player.id] || 0;
-                const newTime = oldTime + elapsed;
-                console.log(
-                  `  Player ${player.nombre} ${player.apellido} (ID: ${player.id}): ${Math.round(oldTime/1000)}s → ${Math.round(newTime/1000)}s (+${elapsed}ms)`
-                );
-                updated[player.id] = newTime;
-              });
-
-              const newTotal = Object.values(updated).reduce((sum, val) => sum + val, 0);
-              const averagePlayerTime = onCourtPlayers.length > 0 ? newTotal / onCourtPlayers.length : 0;
-              
-              console.log(`  Total player time: ${Math.round(previousTotal/1000)}s → ${Math.round(newTotal/1000)}s (delta: +${Math.round((newTotal - previousTotal)/1000)}s)`);
-              console.log(`  📊 COMPARISON: Game time elapsed: ${gameTimeElapsed}s | Avg player time: ${Math.round(averagePlayerTime/1000)}s | Diff: ${Math.round((gameTimeElapsed*1000 - averagePlayerTime)/1000)}s`);
-              
-              if (Math.abs(gameTimeElapsed*1000 - averagePlayerTime) > 2000) {
-                console.warn(`  ⚠️ WARNING: More than 2s difference between game time and player time!`);
-              }
-
-              return updated;
-            });
-          }
-          return newTime;
-        }
-
-        // Timer reached 0:00 – signal to be handled outside the state updater
-        quarterEnded = true;
-        return 0;
-      });
-
-      // ── Handle quarter end OUTSIDE the state updater ──────────────────────
-      // Calling async functions or clearInterval inside setGameTime's updater is
-      // a React anti-pattern (pure-function violation). We handle it here instead.
-      if (quarterEnded) {
-        console.log("Timer reached 0:00, handling quarter end...");
-
-        // 1. Stop the game-tick interval immediately
-        clearInterval(interval);
-        setTimerInterval(null);
-
-        // 2. Update the ref synchronously so no further minute-accumulation
-        //    happens even if a stale tick somehow fires
-        isClockRunningRef.current = false;
-        setIsClockRunning(false);
-
-        // 3. Stop the auto-save interval immediately (don't wait for stopTimer)
-        if (autoSaveIntervalRef.current) {
-          clearInterval(autoSaveIntervalRef.current);
-          autoSaveIntervalRef.current = null;
-          console.log("⏹️ Auto-save interval stopped on quarter end");
-        }
-
-        // 4. Handle quarter transition (saves minutes to backend, advances quarter)
-        handleQuarterEnd();
-      }
-    }, 1000);
-
-    console.log("Created new interval with ID:", interval);
-    setTimerInterval(interval);
-    setIsClockRunning(true);
-    
-    // ✅ REMOVED: Duplicate auto-save interval (already created earlier in startTimer)
-    // The auto-save interval is created at the beginning of startTimer function
   };
 
   // Handle quarter end - automatically go to next quarter
@@ -824,63 +579,55 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     try {
       console.log("🏁 Quarter ended, going to next quarter...");
 
-      // Save current stats before quarter ends
+      // Flush the just-finished stint before the quarter/lineup state changes under it
       await stopTimer();
 
-      // Call backend to advance to next quarter
       const response = await gameAPI.nextQuarter(game.id);
       console.log("Next quarter response:", response.data);
 
-      // Update game data with new quarter info
       const updatedGame = await gameAPI.getGame(game.id);
       setGame(updatedGame.data);
 
-      // Reset timer for new quarter
-      setGameTime(QUARTER_LENGTH);
-
-      // Show quarter change notification
       message.success({
         content: `¡Cuarto ${updatedGame.data.currentQuarter} iniciado!`,
         duration: 4,
       });
-
-      // Reset entry scores for plus-minus tracking (new quarter, fresh start)
-      console.log("✅ Quarter transition completed successfully");
     } catch (error: any) {
       console.error("Error handling quarter end:", error);
       message.error("Error al cambiar de cuarto");
     }
   };
 
-  const stopTimer = async () => {
-    console.log("⏹️ STOPPING TIMER - Plus-minus update process starting...");
-    console.log("Current playerPlusMinus state:", playerPlusMinus);
-    console.log("Stopping timer. Current interval ID:", timerInterval);
+  // Only the device with time-control permission attempts to auto-advance the
+  // quarter, and only once per resume — otherwise every connected viewer's
+  // display would hit 0:00 at roughly the same moment and all race to call
+  // nextQuarter.
+  const quarterEndTriggeredRef = useRef(false);
+  useEffect(() => {
+    quarterEndTriggeredRef.current = false;
+  }, [game?.clockStartedAt]);
 
-    // Update ref SYNCHRONOUSLY so any in-flight tick knows immediately
-    isClockRunningRef.current = false;
-    
-    // Clear the game timer interval
-    if (timerInterval) {
-      clearInterval(timerInterval);
-      setTimerInterval(null);
-      console.log("Timer interval cleared and set to null");
+  useEffect(() => {
+    if (
+      isClockRunning &&
+      gameTime <= 0 &&
+      !quarterEndTriggeredRef.current &&
+      hasPermission("canControlTime")
+    ) {
+      quarterEndTriggeredRef.current = true;
+      handleQuarterEnd();
     }
-    
-    // Clear the auto-save interval
-    if (autoSaveIntervalRef.current) {
-      clearInterval(autoSaveIntervalRef.current);
-      autoSaveIntervalRef.current = null;
-      console.log("⏹️ Auto-save interval stopped");
+  }, [gameTime, isClockRunning]);
+
+  // Resume the clock. The backend records clockStartedAt itself.
+  const startTimer = async () => {
+    if (!game) return;
+    try {
+      const response = await gameAPI.startClock(game.id);
+      setGame((prev) => (prev ? { ...prev, ...response.data } : response.data));
+    } catch (error: any) {
+      message.error(error.response?.data?.error || "No se pudo iniciar el reloj");
     }
-    
-    setIsClockRunning(false);
-
-    // Save tracked minutes to backend when timer stops
-    await savePlayerMinutesToBackend(false);
-
-    // NOTE: Plus-minus is now automatically calculated by the backend when recording shots
-    // No need to update plus-minus manually from frontend
   };
 
   // Score management (following documentation)
@@ -1283,37 +1030,15 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
     initializeGame();
 
-    // Cleanup function to clear any running timers when component unmounts or ID changes
+    // Cleanup function when component unmounts or ID changes. There's no
+    // client-side timer or accumulated state to flush anymore — the clock and
+    // player minutes both live in the backend — so this only needs to drop
+    // socket listeners.
     return () => {
-      console.log("Component cleanup: clearing timer interval, auto-save, and socket listeners");
-      if (timerInterval) {
-        clearInterval(timerInterval);
-        setTimerInterval(null);
-        setIsClockRunning(false);
-      }
-      // Clear auto-save interval
-      if (autoSaveIntervalRef.current) {
-        clearInterval(autoSaveIntervalRef.current);
-        autoSaveIntervalRef.current = null;
-        console.log("⏹️ Auto-save cleaned up on component unmount");
-      }
-      // Clean up socket listeners
+      console.log("Component cleanup: clearing socket listeners");
       socketService.removeAllListeners();
     };
   }, [id, user]); // Added user dependency
-
-  // Flush player minutes to the backend when the tab is backgrounded/closed.
-  // Registered once and reads from refs, so it always sees the latest values
-  // even though the clock ticks every second (avoids re-subscribing constantly).
-  useEffect(() => {
-    const flushOnHide = () => {
-      if (document.hidden && isClockRunningRef.current) {
-        savePlayerMinutesToBackend(true);
-      }
-    };
-    document.addEventListener('visibilitychange', flushOnHide);
-    return () => document.removeEventListener('visibilitychange', flushOnHide);
-  }, []);
 
   // Warn user before reloading/closing the page if game is in progress
   useEffect(() => {
@@ -1468,14 +1193,14 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           ...homeTeamResponse.data,
           score: game.score?.home || 0,
           players: (homeTeamResponse.data.players || []).map((p: Player) => {
-            // Preserve existing player stats if available (from React state)
-            const existingPlayer = homeTeam?.players?.find(
-              (existing: Player) => existing.id === p.id
-            );
+            // teamAPI.getTeam() doesn't return per-game stats at all — the
+            // authoritative source is game.stats (PlayerGameStats), scoped to
+            // this specific game, freshly fetched above.
+            const statsFromGame = game.stats?.find((s: any) => s.playerId === p.id);
             return {
               ...p,
               isOnCourt: homeActiveIds.includes(p.id),
-              stats: existingPlayer?.stats || p.stats, // Keep existing stats if available
+              stats: statsFromGame || p.stats,
             };
           }),
         };
@@ -1483,14 +1208,11 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           ...awayTeamResponse.data,
           score: game.score?.away || 0,
           players: (awayTeamResponse.data.players || []).map((p: Player) => {
-            // Preserve existing player stats if available (from React state)
-            const existingPlayer = awayTeam?.players?.find(
-              (existing: Player) => existing.id === p.id
-            );
+            const statsFromGame = game.stats?.find((s: any) => s.playerId === p.id);
             return {
               ...p,
               isOnCourt: awayActiveIds.includes(p.id),
-              stats: existingPlayer?.stats || p.stats, // Keep existing stats if available
+              stats: statsFromGame || p.stats,
             };
           }),
         };
@@ -1511,30 +1233,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         setHomeTeam(newHomeTeam);
         setAwayTeam(newAwayTeam);
 
-        // Initialize player minutes from the backend, which is the source of truth.
-        // We keep Math.max against in-memory state (not localStorage) purely to avoid
-        // clobbering a value this same session already accumulated but hasn't pushed yet.
+        // Player minutes are no longer tracked client-side at all — each
+        // player's `stats.minutos` (already attached above) came straight from
+        // PlayerGameStats and is only ever updated by the backend's pauseClock.
         const allPlayers = [...newHomeTeam.players, ...newAwayTeam.players];
-        setPlayerMinutes((prev) => {
-          const initialPlayerMinutes: Record<number, number> = {};
-
-          allPlayers.forEach((player) => {
-            const currentMinutes = prev[player.id] || 0;
-            const statsFromBD = game.stats?.find((s: any) => s.playerId === player.id);
-            // PlayerGameStats.minutos is stored in seconds on the backend; convert to ms.
-            const minutesFromBD = (statsFromBD?.minutos || 0) * 1000;
-
-            const minutes = Math.max(currentMinutes, minutesFromBD);
-            initialPlayerMinutes[player.id] = minutes;
-
-            if (minutes > 0) {
-              console.log(`📥 Player ${player.nombre} minutes: ${Math.round(minutes/1000)}s (State: ${Math.round(currentMinutes/1000)}s, BD: ${Math.round(minutesFromBD/1000)}s)`);
-            }
-          });
-
-          console.log("💾 Player minutes initialized/updated from backend");
-          return initialPlayerMinutes;
-        });
 
         // Initialize player plus-minus for all players when game data loads
         // BUT ONLY if playerPlusMinus is empty (first load)
@@ -1646,14 +1348,8 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       });
 
       setIsLineupModalVisible(false);
-
-      // ✅ Only reset minutes if this is a new game being started
-      if (game?.estado === 'scheduled') {
-        resetPlayerMinutes();
-        console.log('🆕 New game starting - player minutes reset');
-      } else {
-        console.log('▶️ Resuming existing game - preserving player minutes');
-      }
+      // Player minutes live entirely in PlayerGameStats now, so there's nothing
+      // to reset client-side — a new game simply has no minutes recorded yet.
 
       // DON'T start the game timer automatically - let the user start it manually
       // startTimer();
@@ -2057,9 +1753,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
               substitutionState={substitutionState}
               onBenchPlayerClick={(player, team) => {
                 if (substitutionState.isSelecting && substitutionState.selectedTeam === team) {
-                  // Flush accumulated minutes right at the substitution boundary so a
-                  // reload immediately after a sub doesn't lose the in-progress stint.
-                  completeSubstitution(player).then(() => savePlayerMinutesToBackend(true));
+                  completeSubstitution(player);
                 } else if (!substitutionState.isSelecting) {
                   openStatsModal(player);
                 }
@@ -2097,6 +1791,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         player={statsModal.player}
         visible={statsModal.visible}
         activeTab={statsModal.activeTab}
+        isClockRunning={isClockRunning}
         onClose={closeStatsModal}
         onTabChange={(tab) =>
           setStatsModal((prev) => ({

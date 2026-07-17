@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Tabs, Button, Space, Typography, Row, Col, Statistic } from 'antd';
+import { Modal, Tabs, Button, Space, Typography, Row, Col, Statistic, Alert } from 'antd';
 import type { Player } from '../../types/game.types';
 
 const { Title } = Typography;
@@ -14,6 +14,8 @@ interface StatsModalProps {
   onRecordStat: (statType: 'rebound' | 'offensiveRebound' | 'assist' | 'steal' | 'block' | 'turnover' | 'foul') => void;
   // Permissions
   hasPermission: (permission: string) => boolean;
+  // Stats can only be recorded while the game clock is actually running
+  isClockRunning: boolean;
 }
 
 /**
@@ -34,6 +36,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
   onRecordShot,
   onRecordStat,
   hasPermission,
+  isClockRunning,
 }) => {
   if (!player) return null;
 
@@ -68,6 +71,14 @@ export const StatsModal: React.FC<StatsModalProps> = ({
       footer={null}
       width={600}
     >
+      {!isClockRunning && (
+        <Alert
+          type="warning"
+          showIcon
+          message="El reloj está pausado — no se pueden registrar estadísticas hasta reanudarlo."
+          style={{ marginBottom: 16 }}
+        />
+      )}
       <Tabs activeKey={activeTab} onChange={(key) => onTabChange(key as 'shots' | 'other')}>
         {/* Shots Tab */}
         {canShowShotsTab && (
@@ -86,6 +97,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                         backgroundColor: '#52c41a',
                         borderColor: '#52c41a',
                       }}
+                      disabled={!isClockRunning}
                       onClick={() => onRecordShot('2pt', true)}
                     >
                       Anotado
@@ -95,6 +107,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                       danger
                       size="large"
                       style={{ width: '120px' }}
+                      disabled={!isClockRunning}
                       onClick={() => onRecordShot('2pt', false)}
                     >
                       Fallado
@@ -116,6 +129,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                         backgroundColor: '#52c41a',
                         borderColor: '#52c41a',
                       }}
+                      disabled={!isClockRunning}
                       onClick={() => onRecordShot('3pt', true)}
                     >
                       Anotado
@@ -125,6 +139,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                       danger
                       size="large"
                       style={{ width: '120px' }}
+                      disabled={!isClockRunning}
                       onClick={() => onRecordShot('3pt', false)}
                     >
                       Fallado
@@ -146,6 +161,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                         backgroundColor: '#52c41a',
                         borderColor: '#52c41a',
                       }}
+                      disabled={!isClockRunning}
                       onClick={() => onRecordShot('ft', true)}
                     >
                       Anotado
@@ -155,6 +171,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                       danger
                       size="large"
                       style={{ width: '120px' }}
+                      disabled={!isClockRunning}
                       onClick={() => onRecordShot('ft', false)}
                     >
                       Fallado
@@ -181,7 +198,8 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                           type="primary"
                           size="large"
                           style={{ width: '120px' }}
-                          onClick={() => onRecordStat('rebound')}
+                          disabled={!isClockRunning}
+                      onClick={() => onRecordStat('rebound')}
                         >
                           Rebote
                         </Button>
@@ -191,7 +209,8 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                           type="default"
                           size="large"
                           style={{ width: '160px' }}
-                          onClick={() => onRecordStat('offensiveRebound')}
+                          disabled={!isClockRunning}
+                      onClick={() => onRecordStat('offensiveRebound')}
                         >
                           Rebote Ofensivo
                         </Button>
@@ -201,7 +220,8 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                           type="primary"
                           size="large"
                           style={{ width: '120px' }}
-                          onClick={() => onRecordStat('assist')}
+                          disabled={!isClockRunning}
+                      onClick={() => onRecordStat('assist')}
                         >
                           Asistencia
                         </Button>
@@ -220,7 +240,8 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                           type="primary"
                           size="large"
                           style={{ width: '120px' }}
-                          onClick={() => onRecordStat('steal')}
+                          disabled={!isClockRunning}
+                      onClick={() => onRecordStat('steal')}
                         >
                           Robo
                         </Button>
@@ -230,7 +251,8 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                           type="primary"
                           size="large"
                           style={{ width: '120px' }}
-                          onClick={() => onRecordStat('block')}
+                          disabled={!isClockRunning}
+                      onClick={() => onRecordStat('block')}
                         >
                           Tapón
                         </Button>
@@ -250,7 +272,8 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                           danger
                           size="large"
                           style={{ width: '120px' }}
-                          onClick={() => onRecordStat('turnover')}
+                          disabled={!isClockRunning}
+                      onClick={() => onRecordStat('turnover')}
                         >
                           Pérdida
                         </Button>
@@ -264,7 +287,8 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                             backgroundColor: '#ff7a45',
                             borderColor: '#ff7a45',
                           }}
-                          onClick={() => onRecordStat('foul')}
+                          disabled={!isClockRunning}
+                      onClick={() => onRecordStat('foul')}
                         >
                           Falta Personal
                         </Button>
