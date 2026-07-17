@@ -5,6 +5,10 @@ import type { Player, Team } from '../../types/game.types';
 
 const { Title } = Typography;
 
+const FOUL_OUT_LIMIT = 5;
+const isFouledOut = (player: Player): boolean =>
+  (player.stats?.faltasPersonales || 0) >= FOUL_OUT_LIMIT;
+
 interface SubstitutionState {
   isSelecting: boolean;
   playerOut: Player | null;
@@ -79,8 +83,13 @@ export const Court: React.FC<CourtProps> = ({
             player={player}
             teamColor="home"
             isMobile={isMobile}
+            isFouledOut={isFouledOut(player)}
             onClick={(e) => onPlayerClick(player, 'home', e)}
-            title={`${player.nombre} ${player.apellido} - ${player.posicion} | Click to record stats, Shift+Click to substitute`}
+            title={
+              isFouledOut(player)
+                ? `${player.nombre} ${player.apellido} - Descalificado (5 faltas). Debe salir de la cancha.`
+                : `${player.nombre} ${player.apellido} - ${player.posicion} | Click to record stats, Shift+Click to substitute`
+            }
           />
         ))}
       </div>
@@ -122,8 +131,13 @@ export const Court: React.FC<CourtProps> = ({
             player={player}
             teamColor="away"
             isMobile={isMobile}
+            isFouledOut={isFouledOut(player)}
             onClick={(e) => onPlayerClick(player, 'away', e)}
-            title={`${player.nombre} ${player.apellido} - ${player.posicion} | Click to record stats, Shift+Click to substitute`}
+            title={
+              isFouledOut(player)
+                ? `${player.nombre} ${player.apellido} - Descalificado (5 faltas). Debe salir de la cancha.`
+                : `${player.nombre} ${player.apellido} - ${player.posicion} | Click to record stats, Shift+Click to substitute`
+            }
           />
         ))}
       </div>

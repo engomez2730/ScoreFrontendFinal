@@ -6,6 +6,7 @@ interface PlayerCircleProps {
   teamColor: 'home' | 'away' | 'bench';
   isMobile?: boolean;
   isSelectable?: boolean;
+  isFouledOut?: boolean;
   onClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
   title?: string;
 }
@@ -25,6 +26,7 @@ export const PlayerCircle: React.FC<PlayerCircleProps> = ({
   teamColor,
   isMobile = false,
   isSelectable = false,
+  isFouledOut = false,
   onClick,
   title,
 }) => {
@@ -45,6 +47,9 @@ export const PlayerCircle: React.FC<PlayerCircleProps> = ({
   };
 
   const getBorderStyle = (): string => {
+    if (isFouledOut) {
+      return '3px solid #cf1322'; // Rojo intenso: jugador descalificado
+    }
     if (isSelectable) {
       return '3px solid #52c41a'; // Verde cuando es seleccionable
     }
@@ -66,9 +71,11 @@ export const PlayerCircle: React.FC<PlayerCircleProps> = ({
     justifyContent: 'center',
     cursor: onClick ? 'pointer' : 'default',
     margin: 8,
+    opacity: isFouledOut ? 0.55 : 1,
     boxShadow: teamColor !== 'bench' ? '0 4px 12px rgba(0, 0, 0, 0.3)' : 'none',
     transition: 'all 0.3s ease',
     color: teamColor === 'bench' ? '#1890ff' : 'white',
+    position: 'relative',
   };
 
   return (
@@ -94,6 +101,28 @@ export const PlayerCircle: React.FC<PlayerCircleProps> = ({
       <span style={{ fontSize: 10, fontWeight: 'bold' }}>
         {player.nombre.split(' ')[0]}
       </span>
+      {isFouledOut && (
+        <span
+          style={{
+            position: 'absolute',
+            top: -6,
+            right: -6,
+            background: '#cf1322',
+            color: 'white',
+            borderRadius: '50%',
+            width: 22,
+            height: 22,
+            fontSize: 10,
+            fontWeight: 'bold',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid white',
+          }}
+        >
+          5F
+        </span>
+      )}
     </div>
   );
 };

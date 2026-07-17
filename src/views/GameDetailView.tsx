@@ -433,6 +433,7 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
     try {
       console.log("Making API call to record stat...");
+      const foulPlayerName = `${statsModal.player.nombre} ${statsModal.player.apellido}`;
       switch (statType) {
         case "assist":
           await gameAPI.recordAssist(game.id, statsModal.player.id);
@@ -452,9 +453,18 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         case "turnover":
           await gameAPI.recordTurnover(game.id, statsModal.player.id);
           break;
-        case "foul":
-          await gameAPI.recordFoul(game.id, statsModal.player.id);
+        case "foul": {
+          const foulResponse = await gameAPI.recordFoul(game.id, statsModal.player.id);
+          const totalFouls = foulResponse.data?.foul?.totalFouls;
+          if (totalFouls >= 5) {
+            notification.warning({
+              message: "¡Jugador descalificado!",
+              description: `${foulPlayerName} llegó a ${totalFouls} faltas personales y queda fuera del partido (regla FIBA).`,
+              duration: 0,
+            });
+          }
           break;
+        }
       }
 
       console.log("Stat recorded successfully");
@@ -490,11 +500,11 @@ const GameDetailView: React.FC = (): React.ReactNode => {
       } catch (error) {
         console.error("Error refreshing game data:", error);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error recording stat:", error);
       message.error({
-        content: "No se pudo registrar la estadística",
-        duration: 1,
+        content: error.response?.data?.error || "No se pudo registrar la estadística",
+        duration: 3,
       });
     }
   };

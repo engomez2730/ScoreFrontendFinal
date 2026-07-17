@@ -1,7 +1,11 @@
 import React from 'react';
-import { Row, Col, Typography } from 'antd';
+import { Row, Col, Typography, message } from 'antd';
 import { PlayerCircle } from './PlayerCircle';
 import type { Player, Team } from '../../types/game.types';
+
+const FOUL_OUT_LIMIT = 5;
+const isFouledOut = (player: Player): boolean =>
+  (player.stats?.faltasPersonales || 0) >= FOUL_OUT_LIMIT;
 
 const { Title } = Typography;
 
@@ -65,15 +69,25 @@ export const BenchArea: React.FC<BenchAreaProps> = ({
               teamColor="bench"
               isMobile={isMobile}
               isSelectable={isPlayerSelectable('home')}
+              isFouledOut={isFouledOut(player)}
               onClick={() => {
+                if (isFouledOut(player)) {
+                  message.warning({
+                    content: `${player.nombre} ${player.apellido} tiene 5 faltas personales y está descalificado. No puede volver a la cancha.`,
+                    duration: 3,
+                  });
+                  return;
+                }
                 if (isPlayerSelectable('home') || !substitutionState.isSelecting) {
                   onBenchPlayerClick(player, 'home');
                 }
               }}
               title={
-                isPlayerSelectable('home')
-                  ? `Click to substitute in ${player.nombre}`
-                  : `${player.nombre} ${player.apellido} - ${player.posicion} | Bench player - No stats when not on court`
+                isFouledOut(player)
+                  ? `${player.nombre} ${player.apellido} - Descalificado (5 faltas personales)`
+                  : isPlayerSelectable('home')
+                    ? `Click to substitute in ${player.nombre}`
+                    : `${player.nombre} ${player.apellido} - ${player.posicion} | Bench player - No stats when not on court`
               }
             />
           ))}
@@ -93,15 +107,25 @@ export const BenchArea: React.FC<BenchAreaProps> = ({
               teamColor="bench"
               isMobile={isMobile}
               isSelectable={isPlayerSelectable('away')}
+              isFouledOut={isFouledOut(player)}
               onClick={() => {
+                if (isFouledOut(player)) {
+                  message.warning({
+                    content: `${player.nombre} ${player.apellido} tiene 5 faltas personales y está descalificado. No puede volver a la cancha.`,
+                    duration: 3,
+                  });
+                  return;
+                }
                 if (isPlayerSelectable('away') || !substitutionState.isSelecting) {
                   onBenchPlayerClick(player, 'away');
                 }
               }}
               title={
-                isPlayerSelectable('away')
-                  ? `Click to substitute in ${player.nombre}`
-                  : `${player.nombre} ${player.apellido} - ${player.posicion} | Bench player - No stats when not on court`
+                isFouledOut(player)
+                  ? `${player.nombre} ${player.apellido} - Descalificado (5 faltas personales)`
+                  : isPlayerSelectable('away')
+                    ? `Click to substitute in ${player.nombre}`
+                    : `${player.nombre} ${player.apellido} - ${player.posicion} | Bench player - No stats when not on court`
               }
             />
           ))}
