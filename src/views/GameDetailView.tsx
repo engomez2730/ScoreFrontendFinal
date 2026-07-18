@@ -57,6 +57,7 @@ interface Game {
   isOvertime?: boolean;
   isClockRunning?: boolean;
   clockStartedAt?: string | null;
+  serverTime?: string;
   event?: {
     id: number;
     nombre: string;
@@ -118,6 +119,18 @@ const GameDetailView: React.FC = (): React.ReactNode => {
   const isClockRunning = game?.isClockRunning ?? false;
   const [gameTime, setGameTime] = useState(QUARTER_LENGTH);
 
+  // How far this device's clock is from the server's, in ms (serverTime -
+  // Date.now() at the moment we received it). Without this, a device whose
+  // clock is even a couple seconds off from the server's sees the countdown
+  // jump the instant the clock starts or resumes, since we'd be comparing
+  // this device's Date.now() directly against the server's clockStartedAt.
+  const clockSkewMsRef = useRef(0);
+  useEffect(() => {
+    if (game?.serverTime) {
+      clockSkewMsRef.current = new Date(game.serverTime).getTime() - Date.now();
+    }
+  }, [game?.serverTime]);
+
   // Track player plus-minus: {playerId: plusMinusValue}
   const [playerPlusMinus, setPlayerPlusMinus] = useState<
     Record<number, number>
@@ -142,7 +155,10 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
     const clockStartedAtMs = new Date(game.clockStartedAt).getTime();
     const tick = () => {
-      const liveElapsed = Math.floor((Date.now() - clockStartedAtMs) / 1000);
+      const correctedNow = Date.now() + clockSkewMsRef.current;
+      // Match the backend's Math.round in pauseClock/flushClockTime so the
+      // displayed countdown doesn't jump by ~1s the moment you pause.
+      const liveElapsed = Math.round((correctedNow - clockStartedAtMs) / 1000);
       setGameTime(Math.max(0, QUARTER_LENGTH - (game.gameTime || 0) - liveElapsed));
     };
     tick();
