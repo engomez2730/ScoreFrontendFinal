@@ -1035,21 +1035,43 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         // only seeing their own actions reflected until something tells them
         // otherwise. Keep everyone's clock state and stats in sync in real
         // time instead of requiring a manual reload.
-        socketService.onClockStarted(async () => {
-          await loadGameData();
-        });
-        socketService.onClockPaused(async () => {
-          await loadGameData();
-        });
-        socketService.onEvent("quarterChanged", async () => {
-          await loadGameData();
-        });
-        socketService.onEvent("statsUpdated", async () => {
-          await loadGameData();
-        });
-        socketService.onEvent("gameUpdated", async () => {
-          await loadGameData();
-        });
+        //
+        // statsUpdated fires on *every* single stat from *every* connected
+        // client (including your own — the server broadcasts to the whole
+        // room), so this has to be cheap: one GET /games/:id, not the full
+        // loadGameData() (which also re-fetches both team rosters and active
+        // players). Rosters/on-court status don't change here anyway —
+        // that's what the dedicated substitution handler above is for.
+        const refreshGameAndStats = async () => {
+          try {
+            const updatedGame = await gameAPI.getGame(id!);
+            const freshGame = updatedGame.data;
+            setGame(freshGame);
+            const mergeStats = (players: Player[]) =>
+              players.map((p) => {
+                const stats = freshGame.stats?.find((s: any) => s.playerId === p.id);
+                return stats ? { ...p, stats } : p;
+              });
+            setHomeTeam((prev) =>
+              prev
+                ? { ...prev, score: freshGame.homeScore || 0, players: mergeStats(prev.players) }
+                : null
+            );
+            setAwayTeam((prev) =>
+              prev
+                ? { ...prev, score: freshGame.awayScore || 0, players: mergeStats(prev.players) }
+                : null
+            );
+          } catch (err) {
+            console.error("Error refreshing game/stats from realtime event:", err);
+          }
+        };
+
+        socketService.onClockStarted(refreshGameAndStats);
+        socketService.onClockPaused(refreshGameAndStats);
+        socketService.onEvent("quarterChanged", refreshGameAndStats);
+        socketService.onEvent("statsUpdated", refreshGameAndStats);
+        socketService.onEvent("gameUpdated", refreshGameAndStats);
 
         // First join the game to get permissions
         try {
