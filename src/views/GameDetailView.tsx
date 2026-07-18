@@ -1031,6 +1031,26 @@ const GameDetailView: React.FC = (): React.ReactNode => {
           message.info("Sustitución realizada por otro usuario", 2);
         });
 
+        // Multiple scorers/roles can have this same game open at once, each
+        // only seeing their own actions reflected until something tells them
+        // otherwise. Keep everyone's clock state and stats in sync in real
+        // time instead of requiring a manual reload.
+        socketService.onClockStarted(async () => {
+          await loadGameData();
+        });
+        socketService.onClockPaused(async () => {
+          await loadGameData();
+        });
+        socketService.onEvent("quarterChanged", async () => {
+          await loadGameData();
+        });
+        socketService.onEvent("statsUpdated", async () => {
+          await loadGameData();
+        });
+        socketService.onEvent("gameUpdated", async () => {
+          await loadGameData();
+        });
+
         // First join the game to get permissions
         try {
           const joinResult = await joinGame(Number(id));

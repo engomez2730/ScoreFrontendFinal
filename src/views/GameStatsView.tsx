@@ -144,6 +144,9 @@ const GameStatsView: React.FC = () => {
           "reboundRecorded",
           "offensiveReboundRecorded",
           "substitutionMade",
+          "clockStarted",
+          "clockPaused",
+          "quarterChanged",
         ];
 
         const handler = async (data: any) => {
@@ -182,6 +185,9 @@ const GameStatsView: React.FC = () => {
         "reboundRecorded",
         "offensiveReboundRecorded",
         "substitutionMade",
+        "clockStarted",
+        "clockPaused",
+        "quarterChanged",
       ].forEach((ev) => socketService.offEvent(ev));
 
       socketService.removeAllListeners();
