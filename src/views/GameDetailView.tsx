@@ -506,14 +506,11 @@ const GameDetailView: React.FC = (): React.ReactNode => {
 
     try {
       console.log("Making API call to record shot...");
-      const currentGameTime = QUARTER_LENGTH - gameTime; // Convert countdown time to elapsed time
-      console.log("Game time:", currentGameTime);
 
       await gameAPI.recordShot(game.id, {
         playerId: statsModal.player.id,
         shotType,
         made,
-        gameTime: currentGameTime,
       });
 
       console.log("Shot recorded successfully");

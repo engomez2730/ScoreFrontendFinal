@@ -92,7 +92,6 @@ export const gameAPI = {
       playerId: number;
       shotType: string;
       made: boolean;
-      gameTime: number;
     }
   ) => api.post(`/games/${gameId}/record-shot`, shotData),
 
