@@ -500,8 +500,11 @@ const GameStatsView: React.FC = () => {
       tiros3Anotados: totals.tiros3Anotados + stat.tiros3Anotados,
       tirosLibresIntentados: totals.tirosLibresIntentados + stat.tirosLibresIntentados,
       tirosLibresAnotados: totals.tirosLibresAnotados + stat.tirosLibresAnotados,
-      minutos: totals.minutos + stat.minutos,
-      plusMinus: totals.plusMinus + stat.plusMinus,
+      // Minutes and +/- aren't meaningful summed across a whole team (minutes
+      // would just be ~5x the game length, and +/- isn't an additive stat),
+      // so the totals row leaves these at 0 rather than adding them up.
+      minutos: 0,
+      plusMinus: 0,
       perdidas: totals.perdidas + stat.perdidas,
       faltasPersonales: totals.faltasPersonales + stat.faltasPersonales,
       faltasQ1: totals.faltasQ1 + stat.faltasQ1,

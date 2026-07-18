@@ -75,7 +75,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
         <Alert
           type="warning"
           showIcon
-          message="El reloj está pausado — no se pueden registrar estadísticas hasta reanudarlo."
+          message="El reloj está pausado — solo se pueden registrar faltas y tiros libres hasta reanudarlo."
           style={{ marginBottom: 16 }}
         />
       )}
@@ -161,7 +161,6 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                         backgroundColor: '#52c41a',
                         borderColor: '#52c41a',
                       }}
-                      disabled={!isClockRunning}
                       onClick={() => onRecordShot('ft', true)}
                     >
                       Anotado
@@ -171,7 +170,6 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                       danger
                       size="large"
                       style={{ width: '120px' }}
-                      disabled={!isClockRunning}
                       onClick={() => onRecordShot('ft', false)}
                     >
                       Fallado
@@ -287,7 +285,6 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                             backgroundColor: '#ff7a45',
                             borderColor: '#ff7a45',
                           }}
-                          disabled={!isClockRunning}
                       onClick={() => onRecordStat('foul')}
                         >
                           Falta Personal
