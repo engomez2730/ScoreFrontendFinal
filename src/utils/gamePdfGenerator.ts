@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { getEfficiency } from "./stats";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,9 +96,13 @@ const DARK: [number, number, number] = [30, 30, 30];
 // ─── Main export ─────────────────────────────────────────────────────────────
 
 export function generateGamePdf(
-  gameData: GameData,
+  rawGameData: GameData,
   playersMap: Record<number, { nombre: string; apellido: string; numero: number; posicion: string; teamId: number }>
 ): void {
+  const gameData: GameData = {
+    ...rawGameData,
+    stats: rawGameData.stats.map((s) => ({ ...s, eficiencia: getEfficiency(s) })),
+  };
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const PW = doc.internal.pageSize.getWidth();   // 297
   const PH = doc.internal.pageSize.getHeight();  // 210

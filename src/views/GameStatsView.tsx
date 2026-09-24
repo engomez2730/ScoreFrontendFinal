@@ -16,6 +16,7 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 import { gameAPI, playerAPI } from "../services/apiService";
 import socketService from "../api/socketService";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { getEfficiency } from "../utils/stats";
 
 const { Title, Text } = Typography;
 
@@ -116,6 +117,12 @@ interface GameData {
   }>;
 }
 
+// EFC is always derived client-side; the stored column may be a stale 0
+const withEfficiency = (game: GameData): GameData => ({
+  ...game,
+  stats: game.stats.map((s) => ({ ...s, eficiencia: getEfficiency(s) })),
+});
+
 const GameStatsView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [gameData, setGameData] = useState<GameData | null>(null);
@@ -155,13 +162,13 @@ const GameStatsView: React.FC = () => {
             if (!data || data.gameId === undefined || data.gameId === null) {
               // Some events may send the game id under different keys or not at all — refresh anyway
               const resp = await gameAPI.getGame(id!);
-              setGameData(resp.data);
+              setGameData(withEfficiency(resp.data));
               return;
             }
 
             if (Number(data.gameId) === Number(id)) {
               const resp = await gameAPI.getGame(id!);
-              setGameData(resp.data);
+              setGameData(withEfficiency(resp.data));
             }
           } catch (err) {
             console.error("Error refreshing game on realtime event:", err);
@@ -203,7 +210,7 @@ const GameStatsView: React.FC = () => {
       // Load game data
       const gameResponse = await gameAPI.getGame(id!);
       const game = gameResponse.data;
-      setGameData(game);
+      setGameData(withEfficiency(game));
 
       // Load all players data
       const allPlayers = await playerAPI.getPlayers();

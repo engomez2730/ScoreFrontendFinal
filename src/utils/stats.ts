@@ -71,6 +71,34 @@ export const calculateEfficiency = (stats: PlayerGameStats): number =>
   (stats.tirosLibresIntentados - stats.tirosLibresAnotados) -
   stats.perdidas;
 
+type EfficiencyInput = {
+  eficiencia?: number;
+  puntos?: number;
+  rebotes?: number;
+  asistencias?: number;
+  robos?: number;
+  tapones?: number;
+  tirosIntentados?: number;
+  tirosAnotados?: number;
+  tirosLibresIntentados?: number;
+  tirosLibresAnotados?: number;
+  perdidas?: number;
+};
+
+/**
+ * EFC always derived from the box score. The stored column can't be trusted
+ * for display: rows written before it existed hold the default 0.
+ */
+export const getEfficiency = (s: EfficiencyInput): number =>
+  (s.puntos ?? 0) +
+    (s.rebotes ?? 0) +
+    (s.asistencias ?? 0) +
+    (s.robos ?? 0) +
+    (s.tapones ?? 0) -
+    ((s.tirosIntentados ?? 0) - (s.tirosAnotados ?? 0)) -
+    ((s.tirosLibresIntentados ?? 0) - (s.tirosLibresAnotados ?? 0)) -
+    (s.perdidas ?? 0);
+
 /**
  * Get player stats summary
  */
@@ -102,7 +130,7 @@ export const getStatsSummary = (stats: PlayerGameStats) => {
     fg3Percentage,
     ftPercentage,
     plusMinus: stats.plusMinus,
-    efficiency: stats.eficiencia ?? calculateEfficiency(stats),
+    efficiency: calculateEfficiency(stats),
     minutes: Math.round(stats.minutos / 60000), // Convert ms to minutes
   };
 };
