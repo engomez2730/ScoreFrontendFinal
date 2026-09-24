@@ -21,6 +21,7 @@ interface PlayerStats {
   tirosLibresAnotados?: number;
   minutos: number;
   plusMinus: number;
+  eficiencia?: number;
   perdidas?: number;
   faltasPersonales?: number;
   faltasQ1?: number;
@@ -248,6 +249,7 @@ export function generateGamePdf(
     t3i: sumStat(stats, "tiros3Intentados"),
     tla: sumStat(stats, "tirosLibresAnotados"),
     tli: sumStat(stats, "tirosLibresIntentados"),
+    efc: sumStat(stats, "eficiencia"),
   });
 
   const hSum = buildTeamSummary(homeStats);
@@ -264,6 +266,7 @@ export function generateGamePdf(
     ["Tapones", String(hSum.tap), String(aSum.tap)],
     ["Pérdidas", String(hSum.per), String(aSum.per)],
     ["Faltas", String(hSum.flt), String(aSum.flt)],
+    ["Eficiencia (EFC)", String(hSum.efc), String(aSum.efc)],
   ];
 
   autoTable(doc, {
@@ -340,7 +343,7 @@ function addTeamStatsPage(
   });
 
   // Build table rows
-  const head = [["#", "Jugador", "POS", "MIN", "PTS", "TC", "%TC", "3PT", "%3PT", "TL", "%TL", "REB", "REB-O", "AST", "ROB", "TAP", "PER", "FLT", "+/-"]];
+  const head = [["#", "Jugador", "POS", "MIN", "PTS", "TC", "%TC", "3PT", "%3PT", "TL", "%TL", "REB", "REB-O", "AST", "ROB", "TAP", "PER", "FLT", "+/-", "EFC"]];
   if (hasOT) {
     head[0].splice(5, 0, "Q1", "Q2", "Q3", "Q4", "OT");
   } else {
@@ -380,6 +383,7 @@ function addTeamStatsPage(
       String(s.perdidas ?? 0),
       String(s.faltasPersonales ?? 0),
       s.plusMinus > 0 ? `+${s.plusMinus}` : String(s.plusMinus),
+      String(s.eficiencia ?? 0),
     );
 
     return row;
@@ -409,6 +413,7 @@ function addTeamStatsPage(
     String(sumStat("perdidas")),
     String(sumStat("faltasPersonales")),
     "",
+    String(sumStat("eficiencia")),
   );
 
   rows.push(totalRow);
@@ -446,8 +451,8 @@ function addTeamStatsPage(
           }
         }
       }
-      // Plus-minus coloring — last data column
-      const pmColIdx = hasOT ? head[0].length - 1 : head[0].length - 1;
+      // Plus-minus coloring — second-to-last column (EFC is last)
+      const pmColIdx = head[0].length - 2;
       if (data.section === "body" && data.column.index === pmColIdx && data.row.index < rows.length - 1) {
         const val = Number(String(data.cell.text).replace("+", "")) || 0;
         if (val > 0) data.cell.styles.textColor = [34, 139, 34];

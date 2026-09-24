@@ -4,6 +4,7 @@ import { LockOutlined, MailOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import type { LoginCredentials } from "../api/authService";
+import logo from "../assets/deportes-bonao-logo.png";
 
 const { Title, Text } = Typography;
 
@@ -42,7 +43,7 @@ const LoginView: React.FC = () => {
     <div
       style={{
         minHeight: "100vh",
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        background: "linear-gradient(135deg, #0B1F33 0%, #1EA7E1 100%)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

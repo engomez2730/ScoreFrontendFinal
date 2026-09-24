@@ -57,6 +57,21 @@ export const calculateTrueShootingPercentage = (
 };
 
 /**
+ * Calculate FIBA efficiency (EFC)
+ * (PTS + REB + AST + STL + BLK) - (FGA - FGM) - (FTA - FTM) - TO
+ * Field goal attempts already include 3-pointers.
+ */
+export const calculateEfficiency = (stats: PlayerGameStats): number =>
+  stats.puntos +
+  stats.rebotes +
+  stats.asistencias +
+  stats.robos +
+  stats.tapones -
+  (stats.tirosIntentados - stats.tirosAnotados) -
+  (stats.tirosLibresIntentados - stats.tirosLibresAnotados) -
+  stats.perdidas;
+
+/**
  * Get player stats summary
  */
 export const getStatsSummary = (stats: PlayerGameStats) => {
@@ -87,6 +102,7 @@ export const getStatsSummary = (stats: PlayerGameStats) => {
     fg3Percentage,
     ftPercentage,
     plusMinus: stats.plusMinus,
+    efficiency: stats.eficiencia ?? calculateEfficiency(stats),
     minutes: Math.round(stats.minutos / 60000), // Convert ms to minutes
   };
 };

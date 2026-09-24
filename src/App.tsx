@@ -9,7 +9,9 @@ import {
   Avatar,
   Dropdown,
   Drawer,
+  ConfigProvider,
 } from "antd";
+import logo from "./assets/deportes-bonao-logo.png";
 import type { MenuProps } from "antd";
 import {
   TeamOutlined,
@@ -42,6 +44,13 @@ import { useIsMobile } from "./hooks/useIsMobile";
 
 const { Header, Content } = Layout;
 const { Title } = Typography;
+
+export const BRAND = {
+  navy: "#0B1F33",
+  navyDark: "#081726",
+  blue: "#1EA7E1",
+  orange: "#F47920",
+};
 
 const AppHeader: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -130,10 +139,11 @@ const AppHeader: React.FC = () => {
   return (
     <>
       <Header
-        style={{ 
-          display: "flex", 
-          alignItems: "center", 
-          padding: isMobile ? "0 16px" : "0 24px"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          padding: isMobile ? "0 16px" : "0 24px",
+          background: BRAND.navy,
         }}
       >
         {/* Mobile menu button */}
@@ -146,17 +156,33 @@ const AppHeader: React.FC = () => {
           />
         )}
 
-        <Title 
-          level={4} 
-          style={{ 
-            color: "white", 
-            margin: 0,
+        <Link
+          to="/"
+          style={{
+            display: "flex",
+            alignItems: "center",
             marginRight: isMobile ? "auto" : "24px",
-            fontSize: isMobile ? "16px" : "24px"
+            textDecoration: "none",
           }}
         >
-          Stats Basketball
-        </Title>
+          <img
+            src={logo}
+            alt="Deportes Bonao"
+            style={{ height: isMobile ? 32 : 40, marginRight: 10 }}
+          />
+          {!isMobile && (
+            <Title
+              level={4}
+              style={{
+                color: "white",
+                margin: 0,
+                fontSize: "20px",
+              }}
+            >
+              Deportes Bonao
+            </Title>
+          )}
+        </Link>
 
         {/* Desktop menu */}
         {isAuthenticated && !isMobile && (
@@ -230,6 +256,31 @@ const AppContent: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const App: React.FC = () => {
   return (
+    <ConfigProvider
+      theme={{
+        token: {
+          colorPrimary: BRAND.blue,
+          colorInfo: BRAND.blue,
+          colorLink: BRAND.blue,
+          colorLinkHover: BRAND.orange,
+        },
+        components: {
+          Menu: {
+            darkItemBg: BRAND.navy,
+            darkItemSelectedBg: BRAND.orange,
+            darkSubMenuItemBg: BRAND.navyDark,
+          },
+          Layout: {
+            headerBg: BRAND.navy,
+          },
+          Button: {
+            colorPrimary: BRAND.orange,
+            colorPrimaryHover: "#ff9142",
+            colorPrimaryActive: "#d8690f",
+          },
+        },
+      }}
+    >
     <AntApp>
       <AuthProvider>
         <Router>
@@ -328,6 +379,7 @@ const App: React.FC = () => {
         </Router>
       </AuthProvider>
     </AntApp>
+    </ConfigProvider>
   );
 };
 

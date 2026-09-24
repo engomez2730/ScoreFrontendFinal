@@ -83,6 +83,9 @@ export interface PlayerGameStats {
   plusMinusQ3?: number;
   plusMinusQ4?: number;
   plusMinusOT?: number;
+
+  // FIBA efficiency (EFC), computed and stored by the backend
+  eficiencia?: number;
   
   isStarter: boolean;
   createdAt?: Date | string;

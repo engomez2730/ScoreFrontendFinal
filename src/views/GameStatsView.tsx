@@ -50,6 +50,7 @@ interface PlayerStats {
   tirosLibresAnotados: number;
   minutos: number;
   plusMinus: number;
+  eficiencia?: number;
   perdidas: number;
   faltasPersonales: number;
   faltasQ1: number;
@@ -444,6 +445,21 @@ const GameStatsView: React.FC = () => {
         </Text>
       ),
     },
+    {
+      title: "EFC",
+      dataIndex: "eficiencia",
+      key: "eficiencia",
+      width: 55,
+      align: "center" as const,
+      render: (eficiencia: number | undefined) => {
+        const value = eficiencia ?? 0;
+        return (
+          <Text strong style={{ color: value < 0 ? "#ff4d4f" : undefined }}>
+            {value}
+          </Text>
+        );
+      },
+    },
   ];
 
   if (loading) {
@@ -505,6 +521,7 @@ const GameStatsView: React.FC = () => {
       // so the totals row leaves these at 0 rather than adding them up.
       minutos: 0,
       plusMinus: 0,
+      eficiencia: (totals.eficiencia || 0) + (stat.eficiencia || 0),
       perdidas: totals.perdidas + stat.perdidas,
       faltasPersonales: totals.faltasPersonales + stat.faltasPersonales,
       faltasQ1: totals.faltasQ1 + stat.faltasQ1,
@@ -536,6 +553,7 @@ const GameStatsView: React.FC = () => {
       tirosLibresAnotados: 0,
       minutos: 0,
       plusMinus: 0,
+      eficiencia: 0,
       perdidas: 0,
       faltasPersonales: 0,
       faltasQ1: 0,
