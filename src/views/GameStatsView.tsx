@@ -12,11 +12,14 @@ import {
   Spin,
   message,
 } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, EditOutlined } from "@ant-design/icons";
 import { gameAPI, playerAPI } from "../services/apiService";
 import socketService from "../api/socketService";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { getEfficiency } from "../utils/stats";
+import { useAuth } from "../contexts/AuthContext";
+import { EditPlayerStatsModal } from "../components/game";
+import type { EditablePlayer, StatsAdjustmentResult } from "../components/game";
 
 const { Title, Text } = Typography;
 
@@ -85,6 +88,7 @@ interface GameData {
   gameTime: number;
   homeScore: number;
   awayScore: number;
+  createdBy?: number | null;
   currentQuarter: number;
   quarterLength: number;
   totalQuarters: number;
@@ -129,6 +133,30 @@ const GameStatsView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [players, setPlayers] = useState<Record<number, any>>({});
   const isMobile = useIsMobile();
+  const { user, isAdmin } = useAuth();
+  const [editStats, setEditStats] = useState<{ open: boolean; playerId: number | null }>({
+    open: false,
+    playerId: null,
+  });
+
+  // Show a saved manual correction immediately instead of waiting for the
+  // statsUpdated socket event (which refetches the whole game anyway).
+  const applyStatsAdjustment = ({ stats, game }: StatsAdjustmentResult) => {
+    if (!stats || !game) return;
+    setGameData((prev) => {
+      if (!prev) return prev;
+      const saved = stats as unknown as PlayerStats;
+      const exists = prev.stats.some((s) => s.playerId === saved.playerId);
+      return withEfficiency({
+        ...prev,
+        homeScore: game.homeScore,
+        awayScore: game.awayScore,
+        stats: exists
+          ? prev.stats.map((s) => (s.playerId === saved.playerId ? { ...s, ...saved } : s))
+          : [...prev.stats, saved],
+      });
+    });
+  };
 
   useEffect(() => {
     loadGameStats();
@@ -488,6 +516,47 @@ const GameStatsView: React.FC = () => {
     );
   }
 
+  // This page is public and never joins the game, so per-game permissions
+  // aren't loaded here: offer the editor to ADMIN and the game's creator
+  // (the backend also accepts users granted canManagePermissions).
+  const canEditStats =
+    gameData.estado !== "scheduled" &&
+    (isAdmin() || (user != null && gameData.createdBy === user.id));
+
+  const statsColumns = canEditStats
+    ? [
+        ...createStatsColumns(),
+        {
+          title: "",
+          key: "edit",
+          width: 44,
+          fixed: "right" as const,
+          render: (record: PlayerStats) =>
+            record.playerId === 0 ? null : (
+              <Button
+                type="text"
+                size="small"
+                icon={<EditOutlined />}
+                title="Editar estadísticas"
+                onClick={() => setEditStats({ open: true, playerId: record.playerId })}
+              />
+            ),
+        },
+      ]
+    : createStatsColumns();
+
+  const teamName = (teamId: number) =>
+    teamId === gameData.teamHomeId ? gameData.teamHome.nombre : gameData.teamAway.nombre;
+  const editablePlayers: EditablePlayer[] = (Object.values(players) as NonNullable<PlayerStats["player"]>[])
+    .filter((p) => p.teamId === gameData.teamHomeId || p.teamId === gameData.teamAwayId)
+    .map((p) => ({
+      id: p.id,
+      nombre: p.nombre,
+      apellido: p.apellido,
+      numero: p.numero,
+      teamName: teamName(p.teamId),
+    }));
+
   const homeStats = gameData.stats.filter((stat) => {
     const player = players[stat.playerId];
     return player && player.teamId === gameData.teamHomeId;
@@ -758,7 +827,7 @@ const GameStatsView: React.FC = () => {
       >
         <Table
           dataSource={[...homeStats, homeTeamTotals]}
-          columns={createStatsColumns()}
+          columns={statsColumns}
           pagination={false}
           size="small"
           rowKey="id"
@@ -779,7 +848,7 @@ const GameStatsView: React.FC = () => {
       >
         <Table
           dataSource={[...awayStats, awayTeamTotals]}
-          columns={createStatsColumns()}
+          columns={statsColumns}
           pagination={false}
           size="small"
           rowKey="id"
@@ -1143,6 +1212,19 @@ const GameStatsView: React.FC = () => {
             })}
           </Space>
         </Card>
+      )}
+
+      {canEditStats && (
+        <EditPlayerStatsModal
+          open={editStats.open}
+          gameId={gameData.id}
+          gameStatus={gameData.estado}
+          players={editablePlayers}
+          stats={gameData.stats}
+          initialPlayerId={editStats.playerId}
+          onClose={() => setEditStats({ open: false, playerId: null })}
+          onSaved={applyStatsAdjustment}
+        />
       )}
     </div>
   );

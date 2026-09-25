@@ -1,5 +1,6 @@
 import api from "../api/axios";
 import publicApi from "../api/publicAxios";
+import type { BoxScore } from "../utils/boxScore";
 
 // Game API functions
 export const gameAPI = {
@@ -84,6 +85,19 @@ export const gameAPI = {
   // Update player stats
   updatePlayerStats: (gameId: string | number, playerId: number, stats: any) =>
     api.put(`/games/${gameId}/player-stats`, { playerId, stats }),
+
+  // Manual box-score correction (live or finished game). `baseline` is the
+  // box score the editor was shown, so the server can merge with plays
+  // recorded meanwhile instead of overwriting them.
+  adjustPlayerStats: (
+    gameId: string | number,
+    playerId: number,
+    payload: {
+      stats: BoxScore & { puntos?: number; rebotes?: number };
+      baseline?: BoxScore;
+      reason?: string;
+    }
+  ) => api.put(`/games/${gameId}/players/${playerId}/stats`, payload),
 
   // Record shot (intelligent shot tracking)
   recordShot: (

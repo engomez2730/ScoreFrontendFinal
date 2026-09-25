@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, Tabs, Button, Space, Typography, Row, Col, Statistic, Alert } from 'antd';
+import { EditOutlined } from '@ant-design/icons';
 import type { Player } from '../../types/game.types';
 
 const { Title } = Typography;
@@ -16,6 +17,8 @@ interface StatsModalProps {
   hasPermission: (permission: string) => boolean;
   // Stats can only be recorded while the game clock is actually running
   isClockRunning: boolean;
+  // Opens the manual stats editor for this player; omitted for users who can't correct stats
+  onEditStats?: () => void;
 }
 
 /**
@@ -37,6 +40,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
   onRecordStat,
   hasPermission,
   isClockRunning,
+  onEditStats,
 }) => {
   if (!player) return null;
 
@@ -65,7 +69,16 @@ export const StatsModal: React.FC<StatsModalProps> = ({
 
   return (
     <Modal
-      title={`Estadísticas - ${player.nombre} ${player.apellido}`}
+      title={
+        <Space>
+          {`Estadísticas - ${player.nombre} ${player.apellido}`}
+          {onEditStats && (
+            <Button size="small" icon={<EditOutlined />} onClick={onEditStats}>
+              Editar
+            </Button>
+          )}
+        </Space>
+      }
       open={visible}
       onCancel={onClose}
       footer={null}

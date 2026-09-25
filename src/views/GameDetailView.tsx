@@ -19,6 +19,7 @@ import {
   PauseCircleOutlined,
   BarChartOutlined,
   DownloadOutlined,
+  EditOutlined,
 } from "@ant-design/icons";
 import { generateGamePdf } from "../utils/gamePdfGenerator";
 import { playerAPI } from "../services/apiService";
@@ -29,10 +30,11 @@ import permissionService from "../api/permissionService";
 import api from "../api/axios";
 import { useAuth } from "../contexts/AuthContext";
 import socketService from "../api/socketService";
-import { GameClock, ScoreBoard, Court, BenchArea, StatsModal, LineupModal } from "../components/game";
+import { GameClock, ScoreBoard, Court, BenchArea, StatsModal, LineupModal, EditPlayerStatsModal } from "../components/game";
+import type { EditablePlayer, StatsAdjustmentResult } from "../components/game";
 import { useSubstitutions } from "../hooks/useSubstitutions";
 import { useLineupSelection } from "../hooks/useLineupSelection";
-import type { Player, Team, Game as GameType } from "../types/game.types";
+import type { Player, Team, Game as GameType, PlayerGameStats } from "../types/game.types";
 
 const { Title, Text } = Typography;
 
@@ -223,6 +225,44 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     player: null,
     activeTab: "shots",
   });
+
+  // Manual stats editor; playerId null opens it with the player picker empty
+  const [editStats, setEditStats] = useState<{ open: boolean; playerId: number | null }>({
+    open: false,
+    playerId: null,
+  });
+
+  // Apply a saved manual correction right away. The statsUpdated socket event
+  // the backend broadcasts afterwards refetches the game too; this just means
+  // the editor doesn't have to wait for that round-trip.
+  const applyStatsAdjustment = ({ stats, game: scores }: StatsAdjustmentResult) => {
+    if (!stats || !scores) return;
+    setGame((prev) =>
+      prev
+        ? {
+            ...prev,
+            homeScore: scores.homeScore,
+            awayScore: scores.awayScore,
+            stats: [
+              ...(prev.stats ?? []).filter((s) => s.playerId !== stats.playerId),
+              stats as unknown as Game["stats"][number],
+            ],
+          }
+        : prev
+    );
+    const mergeInto = (prev: Team | null, score: number) =>
+      prev
+        ? {
+            ...prev,
+            score,
+            players: prev.players.map((p) =>
+              p.id === stats.playerId ? { ...p, stats: stats as unknown as PlayerGameStats } : p
+            ),
+          }
+        : null;
+    setHomeTeam((prev) => mergeInto(prev, scores.homeScore));
+    setAwayTeam((prev) => mergeInto(prev, scores.awayScore));
+  };
 
   // Substitution hook
   const { substitutionState, startSubstitution, cancelSubstitution, completeSubstitution } =
@@ -1518,6 +1558,18 @@ const GameDetailView: React.FC = (): React.ReactNode => {
     );
   }
 
+  // Corrections are for whoever runs the game (creator, ADMIN or
+  // canManagePermissions); the backend enforces the same rule.
+  const canEditStats = game.estado !== "scheduled" && hasPermission("canManagePermissions");
+  const toEditable = (team: Team): EditablePlayer[] =>
+    team.players.map((p) => ({
+      id: p.id,
+      nombre: p.nombre,
+      apellido: p.apellido,
+      numero: p.numero,
+      teamName: team.nombre,
+    }));
+
   return (
     <div style={{ padding: 0, minHeight: "100vh", background: "#f5f5f5" }}>
       {/* Header with navigation */}
@@ -1542,6 +1594,14 @@ const GameDetailView: React.FC = (): React.ReactNode => {
                   Ver Estadísticas NBA
                 </Button>
               </Link>
+              {canEditStats && (
+                <Button
+                  icon={<EditOutlined />}
+                  onClick={() => setEditStats({ open: true, playerId: null })}
+                >
+                  Editar Estadísticas
+                </Button>
+              )}
               {game.estado === "finished" && (
                 <Button
                   icon={<DownloadOutlined />}
@@ -1857,6 +1917,27 @@ const GameDetailView: React.FC = (): React.ReactNode => {
         onRecordShot={recordShot}
         onRecordStat={recordStat}
         hasPermission={(permission: string) => hasPermission(permission as any)}
+        onEditStats={
+          canEditStats
+            ? () => {
+                const playerId = statsModal.player?.id ?? null;
+                closeStatsModal();
+                setEditStats({ open: true, playerId });
+              }
+            : undefined
+        }
+      />
+
+      {/* Manual stats correction (live or finished game) */}
+      <EditPlayerStatsModal
+        open={editStats.open}
+        gameId={game.id}
+        gameStatus={game.estado}
+        players={[...toEditable(homeTeam), ...toEditable(awayTeam)]}
+        stats={game.stats ?? []}
+        initialPlayerId={editStats.playerId}
+        onClose={() => setEditStats({ open: false, playerId: null })}
+        onSaved={applyStatsAdjustment}
       />
     </div>
   );

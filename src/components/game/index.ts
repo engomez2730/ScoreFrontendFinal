@@ -12,3 +12,5 @@ export { Court } from './Court';
 export { BenchArea } from './BenchArea';
 export { StatsModal } from './StatsModal';
 export { LineupModal } from './LineupModal';
+export { EditPlayerStatsModal } from './EditPlayerStatsModal';
+export type { EditablePlayer, StatsAdjustmentResult } from './EditPlayerStatsModal';
