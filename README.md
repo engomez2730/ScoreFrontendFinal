@@ -67,3 +67,7 @@ export default tseslint.config([
   },
 ])
 ```
+
+## Licencia
+
+Este proyecto se distribuye bajo la licencia pública MIT. Consulta el archivo [LICENSE](LICENSE). Para publicarlo en GitHub sigue [PUBLICAR_EN_GITHUB.md](PUBLICAR_EN_GITHUB.md).
